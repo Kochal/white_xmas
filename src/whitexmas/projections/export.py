@@ -218,6 +218,7 @@ def export_projections(
     quality: int = 90,
     cogs: bool = True,
     allow_placeholder: bool = False,
+    definitions: tuple[str, ...] = ("christmas_day",),
 ) -> dict:
     import xarray as xr
 
@@ -229,7 +230,9 @@ def export_projections(
             "projections were built on the PLACEHOLDER baseline; rebuild them once the "
             "pipeline's indicators exist, or pass allow_placeholder for a local preview"
         )
-    defs = [str(d) for d in ds["definition"].values]
+    defs = [str(d) for d in ds["definition"].values if str(d) in definitions]
+    if not defs:
+        raise ValueError(f"none of {definitions} in {pp.ensemble}")
     gwls = [float(g) for g in ds["gwl"].values]
     models = json.loads(ds.attrs["models"])
     settings = json.loads(ds.attrs["settings"])

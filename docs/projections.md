@@ -1,6 +1,6 @@
 # Future projections: white Christmas at +1.5, +2 and +3 °C
 
-Status: **Phase 1 (data spike) done, downloads running. Phase 2 (change transfer) in progress.**
+Status: **Phase 1 done; Phase 2 code complete, validation pending the ERA5-Land snow cube.**
 This page is the working document for the projections track (plan §3b, milestones P1–P2). The
 method, model list, skill table and limitations sections are filled in as Phase 2 lands.
 
@@ -154,28 +154,99 @@ uncertain (the cells that matter) is nearly the same. A first check on MPI-ESM1-
 
 The full sensitivity test across all models is part of Phase 2 validation.
 
-## Method (Phase 2, in progress)
+## Method
 
-1. **Per model, per year:** white yes/no on 25 December from `snw ≥ 2.5 kg m⁻²`, on the model's
-   own grid, land cells only (`sftlf`).
-2. **Frequencies** in the baseline (1995–2014) and in each warming-level window (20 years each).
-3. **Change in log-odds** with Jeffreys smoothing, `q = (k + ½)/(n + 1)`, so 0 % and 100 % stay
-   finite: `Δ = logit(q_future) − logit(q_baseline)`.
-4. **Regrid** each model's `Δ` bilinearly to the 0.1° ERA5-Land grid (model ocean cells are first
-   filled from the nearest model land cell so coasts get a value).
-5. **Apply** to the ERA5-Land baseline `p` (1996–2025, `n` = 30 years) in the same smoothed space
-   and map back: `p' = ((n+1)·expit(logit((p·n + ½)/(n+1)) + Δ) − ½)/n`, clipped to 0–100 %. With
-   no change this returns `p` exactly, and a 100 % cell can still decline.
-6. **Ensemble:** median, 10th and 90th percentile of `p'` across models; a cell is flagged where at
-   least two thirds of the models agree on the sign of the change.
+1. **Per model, per year:** white yes/no on 25 December when `snw ≥ 2.5 kg m⁻²` (§4), on the
+   model's own grid and calendar. Land cells only: model land fraction (`sftlf`) ≥ 50 %, or the
+   ERA5-Land land mask aggregated to the model grid where `sftlf` is missing (NESM3).
+2. **Day pooling (noise reduction).** A single day in 20 years is a very noisy frequency estimate:
+   with 20 yes/no values the standard error of a log-odds change is about 0.6 at 50 %, as large
+   as the signal at +2 °C. So each model's frequency is the share of days within **±7 days of
+   25 December** (18 Dec – 1 Jan) on which the rule holds, averaged over the 20 years. This is the
+   same quantity (how often is there snow on the ground at Christmas in this model's climate),
+   estimated from 15 correlated days instead of one. The smoothing below still counts 20 years,
+   so pooling does not make a model look more certain than its 20 years allow. `--pool 0` gives
+   the plain Christmas-Day count; the three definitions pool the same way (a 3-day rule centred
+   on each day).
+3. **Frequencies** in the baseline (historical 1995–2014) and in each warming-level window (§3).
+4. **Change in log-odds** with Jeffreys smoothing, `q = (k + ½)/(n + 1)`, so 0 % and 100 % stay
+   finite: `Δ = logit(q_future) − logit(q_baseline)`, with `k` the (fractional) white-year count
+   and `n` = 20 years.
+5. **Regrid** each model's `Δ` bilinearly to the 0.1° ERA5-Land grid. Model ocean cells are first
+   filled from the nearest model land cell so that coastal ERA5-Land cells get a value.
+6. **Apply** to the ERA5-Land baseline `p` (1996–2025, `n` = 30 years) in the same smoothed space
+   and map back: `p' = ((n+1)·expit(logit((p·n + ½)/(n+1)) + Δ) − ½)/n`, clipped to 0–100 %.
+   With no change this returns `p` exactly, and a 100 % cell can still decline.
+7. **Ensemble:** median, 10th and 90th percentile of `p'` across models. **Agreement:** at least
+   two thirds of the models with a value agree on the direction of the change, where "no change"
+   (`Δ = 0`, e.g. a model cell with snow in every year of both windows) counts as a direction of
+   its own. Without that, cells that keep snow in every model would be flagged as disagreeing.
 
-Code: `src/whitexmas/projections/` (`transfer.py`, `regrid.py`, …), tests in `tests/projections/`.
+Why log-odds: a change of "−20 percentage points" means something very different at 25 % and at
+95 %. Log-odds is the scale on which a logistic relation between snow and temperature is linear,
+it keeps every result between 0 and 100 %, and it lets each model's change be transferred without
+comparing its absolute snow with ERA5-Land.
 
-## Limitations (draft)
+### Running it
 
-- Model grids are about 100 km (0.7°–2.8°). Mountains, valleys and coasts are smeared, so the
-  change at a ski resort is the change of a 100 km box around it.
-- 20-year windows are short. Natural year-to-year variability in each window adds noise to every
-  model's change; the model spread partly reflects that noise, not only model differences.
-- The warming levels are labelled with the decade they are reached under SSP2-4.5, but the
-  projection itself is for a warming level, not a date.
+```
+uv run scripts/projections/cmip6_select.py          # plan.json (models, windows, files)
+uv run scripts/projections/cmip6_download.py        # subsets + manifest, resumable
+uv run python -m whitexmas.projections run --web-out web/static/data
+```
+
+`run` is `changes → validate → ensemble → export`; each step also exists on its own.
+Outputs: `interim/projections/models/<model>.nc` (counts and Δ per model grid),
+`interim/projections/validation/` (bias maps, `skill.csv`, `hindcast.json`),
+`interim/projections/projections.zarr` (0.1° ensemble), and the web products below. A build on
+the placeholder baseline (no `interim/indicators.zarr` yet) refuses to export unless
+`--allow-placeholder` is passed, and its manifest fragment is marked so the pipeline never
+publishes it.
+
+### Web products (contract: `manifest.projections`, `wx-proj-v1`)
+
+- `tiles/proj__christmas_day__gwl{1.5,2.0,3.0}.pmtiles`: median projected probability,
+  colormap `probability`, kind `projection`.
+- `tiles/projchange__christmas_day__gwl{…}.pmtiles`: median change against 1996–2025 in
+  percentage points, colormap `change`, hatched where the models do not agree (kind
+  `projection_change`, `hatch_low_agreement: true`; a proposed contract addition).
+- `proj/<tx>_<ty>.bin.gz`: `wx-proj-v1` point tiles (p10, median, p90 and agreement per level).
+- `$WHITEXMAS_DATA/products/projections/manifest_fragment.json`: the layer entries and the
+  `projections` block, merged into `manifest.json` by `whitexmas.projections.export`.
+- COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
+
+Sizes with the placeholder baseline: about 2.8 MB per layer (6 layers) and 3.4 MB of point tiles.
+
+Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
+
+## Validation and model selection
+
+_Filled in once all downloads and the ERA5-Land snow cube are in._ Two checks per model:
+
+- **Bias:** baseline (1995–2014) white-Christmas frequency against ERA5-Land for the same years,
+  aggregated to the model grid (cos-latitude-weighted over land 25–75 °N): mean bias, mean
+  absolute error (all cells and the "transition" cells where ERA5-Land is between 5 and 95 %),
+  spatial correlation. Bias maps per model.
+- **Hindcast (Brier skill):** apply each model's own 1961–1990 → 1996–2025 change to ERA5-Land's
+  1961–1990 probability and compare with what ERA5-Land observed in 1996–2025. The Brier skill
+  score against "no change" says whether the model changes point the right way by about the
+  right amount; a reliability table checks the ensemble median.
+
+## Limitations
+
+- **Coarse models.** Model grids are about 100 km (0.7°–2.8°). Mountains, valleys and coasts are
+  smeared, so the change at a ski resort is the change of a 100 km box around it, applied to the
+  resort's own 9 km ERA5-Land baseline.
+- **Short windows.** 20-year windows are short. Natural year-to-year variability adds noise to
+  every model's change; the model spread partly reflects that noise, not only model differences.
+  Day pooling reduces it but cannot remove it.
+- **One scenario path labels the decades.** The projection is for a warming level, not a date.
+  "+2 °C (around the 2050s)" uses the SSP2-4.5 median; with faster or slower emission cuts the
+  same warming level comes earlier or later.
+- **Baseline offset.** Models use 1995–2014 (about +0.85 °C) as their baseline, ERA5-Land uses
+  1996–2025 (about +1.0 °C). The projected change is therefore slightly too large, by roughly
+  the change between those two periods (~0.15 °C of global warming). Hot models reach +1.5 °C
+  during their baseline, so their +1.5 °C change is small.
+- **Snow amount, not depth.** Models provide snow water equivalent; the 1 cm threshold is
+  converted with an assumed density (§4). The change transfer makes the result insensitive to
+  the exact value.

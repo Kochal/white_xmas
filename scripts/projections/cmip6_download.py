@@ -214,12 +214,17 @@ def main() -> int:
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--keep-raw", action="store_true")
     ap.add_argument("--model", action="append", help="only these models")
+    ap.add_argument(
+        "--ending-before", type=int, help="only files whose last year is before this year"
+    )
     args = ap.parse_args()
 
     plan = json.loads((OUT / "plan.json").read_text())
     files = plan["files"]
     if args.model:
         files = [f for f in files if f["model"] in args.model]
+    if args.ending_before:
+        files = [f for f in files if f.get("end", 9999) < args.ending_before]
     # small and fx files first so every model gets started early
     files.sort(key=lambda f: (f["variable"] != "sftlf", f.get("size") or 0))
     TMP.mkdir(parents=True, exist_ok=True)
