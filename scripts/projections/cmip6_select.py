@@ -48,7 +48,7 @@ HAUSER_URL = (
 DKRZ_SOLR = "https://esgf-data.dkrz.de/esg-search/search"
 
 GWLS = (1.5, 2.0, 3.0)
-HIST_FIRST_YEAR = 1985  # baseline is 1995-2014; keep 1985 onwards for flexibility
+HIST_FIRST_YEAR = 1960  # baseline 1995-2014; 1961-1990 for the hindcast check
 EXPERIMENTS = ("historical", "ssp245", "ssp585")
 
 # Hosts in order of preference. Hosts that were unreachable from the build
