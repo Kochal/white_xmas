@@ -1,0 +1,145 @@
+import { describe, expect, it } from 'vitest';
+import {
+	ManifestError,
+	defaultDefinition,
+	findLayer,
+	loadManifest,
+	parseManifest,
+	type Manifest
+} from './manifest';
+
+function sampleManifest(): Record<string, unknown> {
+	return {
+		schema_version: 1,
+		data_version: '2026.1',
+		built: '2026-11-20T12:00:00Z',
+		build_hash: 'abc123',
+		years: { first: 1950, last: 2025 },
+		threshold_cm: 1,
+		attribution: 'Contains modified Copernicus Climate Change Service information.',
+		definitions: [
+			{
+				id: 'christmas_day',
+				label: 'Snow on Christmas Day',
+				short: 'Dec 25',
+				description: '…',
+				default: true
+			},
+			{
+				id: 'all_three_days',
+				label: 'Snow on all three days (DWD)',
+				short: 'Dec 24–26',
+				description: '…'
+			}
+		],
+		windows: [
+			{ id: '1950_2025', label: '1950–2025', start: 1950, end: 2025, kind: 'full' },
+			{ id: '1996_2025', label: '1996–2025', start: 1996, end: 2025, kind: 'normal' }
+		],
+		layers: [
+			{
+				id: 'prob__christmas_day__1996_2025',
+				kind: 'probability',
+				definition: 'christmas_day',
+				window: '1996_2025',
+				url: 'tiles/prob__christmas_day__1996_2025.pmtiles',
+				colormap: 'probability'
+			},
+			{
+				id: 'change__christmas_day__1961_1990__1996_2025',
+				kind: 'change',
+				definition: 'christmas_day',
+				from: '1961_1990',
+				to: '1996_2025',
+				url: 'tiles/c.pmtiles',
+				colormap: 'change'
+			}
+		],
+		colormaps: {
+			probability: {
+				unit: '%',
+				domain: [0, 100],
+				stops: [
+					[0, '#ffffff'],
+					[100, '#000080']
+				]
+			}
+		},
+		glacier_style: 'hatched',
+		points: { index: 'points/index.json', tile_deg: 5, format: 'wx-points-v1' },
+		places: 'places.json',
+		regions: 'regions.json'
+	};
+}
+
+describe('parseManifest', () => {
+	it('accepts a contract-shaped manifest and treats missing projections as unavailable', () => {
+		const m = parseManifest(sampleManifest());
+		expect(m.data_version).toBe('2026.1');
+		expect(m.projections.available).toBe(false);
+		expect(m.projections.warming_levels).toEqual([]);
+	});
+
+	it('rejects an unknown schema version with a readable error', () => {
+		expect(() => parseManifest({ ...sampleManifest(), schema_version: 2 })).toThrow(
+			/schema_version 2/
+		);
+	});
+
+	it('rejects a manifest without definitions or layers', () => {
+		expect(() => parseManifest({ ...sampleManifest(), definitions: [] })).toThrow(ManifestError);
+		expect(() => parseManifest({ ...sampleManifest(), layers: 'nope' })).toThrow(ManifestError);
+	});
+
+	it('ignores layers of kinds it does not know, so newer pipelines do not break the site', () => {
+		const raw = sampleManifest();
+		(raw.layers as unknown[]).push({ id: 'x', kind: 'snowfall', url: 'tiles/x.pmtiles' });
+		expect(parseManifest(raw).layers.map((l) => l.id)).toEqual([
+			'prob__christmas_day__1996_2025',
+			'change__christmas_day__1961_1990__1996_2025'
+		]);
+	});
+});
+
+describe('manifest helpers', () => {
+	const m: Manifest = parseManifest(sampleManifest());
+
+	it('finds the default definition, or the first one when none is flagged', () => {
+		expect(defaultDefinition(m).id).toBe('christmas_day');
+		const noDefault = parseManifest({
+			...sampleManifest(),
+			definitions: [{ id: 'any_day', label: 'a', short: 'a', description: 'a' }]
+		});
+		expect(defaultDefinition(noDefault).id).toBe('any_day');
+	});
+
+	it('finds layers by kind, definition and window', () => {
+		expect(
+			findLayer(m, { kind: 'probability', definition: 'christmas_day', window: '1996_2025' })?.id
+		).toBe('prob__christmas_day__1996_2025');
+		expect(
+			findLayer(m, { kind: 'probability', definition: 'christmas_day', window: '1950_2025' })
+		).toBeUndefined();
+		expect(findLayer(m, { kind: 'change', definition: 'christmas_day' })?.id).toBe(
+			'change__christmas_day__1961_1990__1996_2025'
+		);
+	});
+});
+
+describe('loadManifest', () => {
+	it('fetches manifest.json under the data base URL', async () => {
+		const seen: string[] = [];
+		const fetchFn = (async (url: string) => {
+			seen.push(url);
+			return new Response(JSON.stringify(sampleManifest()));
+		}) as typeof fetch;
+		const m = await loadManifest('/white_xmas/data', fetchFn);
+		expect(seen).toEqual(['/white_xmas/data/manifest.json']);
+		expect(m.years).toEqual({ first: 1950, last: 2025 });
+	});
+
+	it('reports a missing manifest clearly', async () => {
+		const fetchFn = (async () => new Response('nope', { status: 404 })) as unknown as typeof fetch;
+		await expect(loadManifest('/data', fetchFn)).rejects.toThrow(/404/);
+	});
+});

@@ -1,0 +1,123 @@
+name: pages
+
+# Builds the site and deploys it to GitHub Pages together with the web data bundle
+# (whitexmas-web-data-<version>.tar.gz) from the GitHub Release tagged data-<version>.
+# One-time setup and repo variables: see web/README.md ("Deploying to GitHub Pages").
+
+on:
+  workflow_dispatch:
+    inputs:
+      data_version:
+        description: 'Data version, e.g. 2026.1. Empty = repo variable DATA_VERSION, else the latest data-* release.'
+        required: false
+        default: ''
+      require_data:
+        description: 'Fail if no data bundle is found. Untick to deploy the site without data (placeholder).'
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    # Pushes to main deploy only once the repo variable PAGES_ENABLED is 'true'.
+    if: github.event_name == 'workflow_dispatch' || vars.PAGES_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    env:
+      BASE_PATH: ${{ vars.PAGES_BASE_PATH || '/white_xmas' }}
+      PUBLIC_SITE_URL: ${{ vars.PAGES_SITE_URL || 'https://kochal.github.io/white_xmas' }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+
+      - name: Build site
+        run: npm run build
+
+      - name: Resolve data version
+        id: data
+        env:
+          INPUT_VERSION: ${{ inputs.data_version }}
+          VAR_VERSION: ${{ vars.DATA_VERSION }}
+        run: |
+          v="${INPUT_VERSION:-$VAR_VERSION}"
+          if [ -z "$v" ]; then
+            tag=$(gh release list --repo "$GITHUB_REPOSITORY" --limit 200 \
+              --json tagName,isDraft,publishedAt \
+              --jq '[.[] | select(.isDraft | not) | select(.tagName | startswith("data-"))]
+                    | sort_by(.publishedAt) | last | .tagName // empty')
+            v="${tag#data-}"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          if [ -n "$v" ]; then echo "Data version: $v"; else echo "No data-* release found."; fi
+
+      - name: Download and unpack data bundle
+        if: steps.data.outputs.version != ''
+        env:
+          V: ${{ steps.data.outputs.version }}
+        run: |
+          set -euo pipefail
+          dl="$RUNNER_TEMP/bundle"; un="$RUNNER_TEMP/unpacked"
+          mkdir -p "$dl" "$un"
+          gh release download "data-$V" --repo "$GITHUB_REPOSITORY" \
+            --pattern "whitexmas-web-data-$V.tar.gz" --dir "$dl"
+          tar -xzf "$dl/whitexmas-web-data-$V.tar.gz" -C "$un"
+          # The bundle may hold the data tree at its root or inside one folder: use the
+          # shallowest manifest.json.
+          manifest=$(find "$un" -name manifest.json -printf '%d %p\n' | sort -n | head -1 | cut -d' ' -f2-)
+          if [ -z "$manifest" ]; then echo "::error::No manifest.json in the bundle"; exit 1; fi
+          src=$(dirname "$manifest")
+          schema=$(jq -r .schema_version "$manifest")
+          [ "$schema" = "1" ] || { echo "::error::manifest schema_version is $schema, the site reads 1"; exit 1; }
+          bundled=$(jq -r .data_version "$manifest")
+          [ "$bundled" = "$V" ] || echo "::warning::manifest data_version is $bundled, release is data-$V"
+          rm -rf build/data && mkdir -p build/data
+          cp -R "$src"/. build/data/
+          du -sh build/data
+          find build/data -type f -size +90M -exec echo "::warning::file over 90 MB: {}" \;
+
+      - name: Check data is present
+        if: steps.data.outputs.version == ''
+        env:
+          REQUIRE: ${{ github.event_name == 'push' || inputs.require_data }}
+        run: |
+          if [ "$REQUIRE" = "true" ]; then
+            echo "::error::No data bundle found (no data-* release). Re-run manually with require_data unticked to deploy without data."
+            exit 1
+          fi
+          echo "::warning::Deploying without data; the site shows a 'data not published yet' notice."
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: web/build
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
