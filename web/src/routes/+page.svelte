@@ -22,6 +22,8 @@
 	import { parseUrlState, serializeUrlState, type MapView as View } from '#lib/url-state.ts';
 
 	const DEFAULT_VIEW: View = { zoom: 3, lat: 48, lon: 10 };
+	const ERA5_ATTRIBUTION =
+		'<a href="https://cds.climate.copernicus.eu/datasets/derived-era5-land-daily-statistics" target="_blank" rel="noopener">ERA5-Land</a> (Copernicus)';
 
 	let ds = $state<DataSource | null>(null);
 	let manifest = $state<Manifest | null>(null);
@@ -122,9 +124,9 @@
 		urlTimer = setTimeout(() => {
 			const url = `${window.location.pathname}${qs}`;
 			if (url !== `${window.location.pathname}${window.location.search}`) {
-				goto(url, { replace: true, shallow: true }).catch(() =>
-					history.replaceState(history.state, '', url)
-				);
+				// The URL comes from window.location.pathname, which already carries the base path.
+				// eslint-disable-next-line svelte/no-navigation-without-resolve
+				goto(url, { replace: true, shallow: true }).catch(() => {});
 			}
 		}, 250);
 	});
@@ -181,7 +183,7 @@
 			{layer}
 			{view}
 			selected={at}
-			attribution={`<a href="https://cds.climate.copernicus.eu/datasets/derived-era5-land-daily-statistics" target="_blank" rel="noopener">ERA5-Land</a> (Copernicus)`}
+			attribution={ERA5_ATTRIBUTION}
 			onselect={(lon, lat) => select(lon, lat, null)}
 			onviewchange={(v) => (view = v)}
 		/>
