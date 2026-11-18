@@ -43,9 +43,16 @@
 		return new URL(`${dataBase}/${path}`, window.location.href).href;
 	}
 
-	/** Puts the climate layer under the basemap's labels and boundaries. */
-	function firstLabelLayer(m: import('maplibre-gl').Map): string | undefined {
-		return m.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+	/**
+	 * Puts the climate layer above roads and land cover but under the basemap's boundaries
+	 * and labels, so places stay readable and roads don't clutter the data.
+	 */
+	function insertBefore(m: import('maplibre-gl').Map): string | undefined {
+		const layers = m.getStyle().layers;
+		return (
+			layers.find((l) => l.id.startsWith('boundary'))?.id ??
+			layers.find((l) => l.type === 'symbol')?.id
+		);
 	}
 
 	function applyLayer(m: import('maplibre-gl').Map, l: Layer | null) {
@@ -68,7 +75,7 @@
 					'raster-fade-duration': 150
 				}
 			},
-			firstLabelLayer(m)
+			insertBefore(m)
 		);
 	}
 
