@@ -1,0 +1,357 @@
+"""Export step: web data per the web data contract, COGs and the data bundle.
+
+Writes into ``web_out`` (normally ``web/static/data``):
+manifest.json, tiles/<layer>.pmtiles, points/index.json + points/<tx>_<ty>.bin.gz,
+places.json, regions.json. COGs go to ``$WHITEXMAS_DATA/products/cog/`` and the bundle
+``whitexmas-web-data-<data_version>.tar.gz`` to ``$WHITEXMAS_DATA/products/``.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import subprocess
+import tarfile
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from datetime import UTC, datetime
+from pathlib import Path
+
+import numpy as np
+
+from ..config import Config
+from ..paths import REPO_ROOT, DataPaths
+from .colors import COLORMAPS
+
+log = logging.getLogger(__name__)
+EXPORT_VERSION = 1
+SCHEMA_VERSION = 1
+
+ATTRIBUTION = (
+    "Contains modified Copernicus Climate Change Service information (ERA5-Land, {year}). "
+    "Neither the European Commission nor ECMWF is responsible for any use that may be made "
+    "of the Copernicus information or data it contains. Places: GeoNames (CC BY 4.0). "
+    "Borders: Natural Earth."
+)
+
+WARMING_LEVELS = [
+    {"gwl": 1.5, "label": "+1.5 °C", "approx": "around the 2030s"},
+    {"gwl": 2.0, "label": "+2 °C", "approx": "around the 2050s"},
+    {"gwl": 3.0, "label": "+3 °C", "approx": "around the 2080s (SSP2-4.5 median)"},
+]
+
+
+# --------------------------------------------------------------------------- layers
+def plan_layers(cfg: Config, decades_for_all: bool = True) -> list[dict]:
+    """Layer specs in manifest order. ``src`` says where the values come from."""
+    maxz = int(cfg.export.get("tile_maxzoom", 6))
+    defs = cfg.definition_ids
+    wins = cfg.windows()
+    a, b = cfg.change_pair
+    full = cfg.full_window().id
+    layers: list[dict] = []
+    for di, d in enumerate(defs):
+        for wi, w in enumerate(wins):
+            if w.kind == "decade" and not decades_for_all and d != cfg.default_definition:
+                continue
+            lid = f"prob__{d}__{w.id}"
+            layers.append({
+                "id": lid, "kind": "probability", "definition": d, "window": w.id,
+                "url": f"tiles/{lid}.pmtiles", "colormap": "probability",
+                "minzoom": 0, "maxzoom": maxz,
+                "src": ("probability", di, wi),
+            })  # fmt: skip
+    for di, d in enumerate(defs):
+        lid = f"change__{d}__{a}__{b}"
+        layers.append({
+            "id": lid, "kind": "change", "definition": d, "from": a, "to": b,
+            "url": f"tiles/{lid}.pmtiles", "colormap": "change", "minzoom": 0, "maxzoom": maxz,
+            "src": ("change", di, None),
+        })  # fmt: skip
+    for di, d in enumerate(defs):
+        lid = f"trend__{d}__{full}"
+        layers.append({
+            "id": lid, "kind": "trend", "definition": d, "window": full,
+            "url": f"tiles/{lid}.pmtiles", "colormap": "trend", "hatch_insignificant": True,
+            "minzoom": 0, "maxzoom": maxz,
+            "src": ("trend", di, None),
+        })  # fmt: skip
+    return layers
+
+
+def _read_layer(ind_path: str, src: tuple, trend_p_alpha: float):
+    import zarr
+
+    z = zarr.open_group(ind_path, mode="r")
+    name, di, wi = src
+    values = z[name][di, wi] if wi is not None else z[name][di]
+    glacier = z["glacier"][:]
+    hatch = None
+    if name == "trend":
+        p = z["trend_p"][di]
+        hatch = ~(p < trend_p_alpha)  # NaN p (no valid trend) also counts as insignificant
+    return np.asarray(values), glacier, hatch
+
+
+def _render_layer(ind_path: str, layer: dict, out: str, maxzoom: int, quality: int, alpha: float):
+    from .tiles import LayerGrid, write_pmtiles
+
+    values, glacier, hatch = _read_layer(ind_path, tuple(layer["src"]), alpha)
+    grid = LayerGrid.build(values, layer["colormap"], glacier, hatch)
+    meta = {k: v for k, v in layer.items() if k not in ("src", "url")}
+    meta["attribution"] = "ERA5-Land (Copernicus C3S)"
+    return write_pmtiles(Path(out), grid, maxzoom=maxzoom, quality=quality, metadata=meta)
+
+
+# --------------------------------------------------------------------------- helpers
+def git_hash() -> str:
+    try:
+        sha = subprocess.run(
+            ["git", "rev-parse", "--short=12", "HEAD"], cwd=REPO_ROOT, capture_output=True,
+            text=True, check=True,
+        ).stdout.strip()  # fmt: skip
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no", "--", "src", "config"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        ).stdout.strip()  # fmt: skip
+        return sha + ("-dirty" if dirty else "")
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
+def data_version(cfg: Config) -> str:
+    return f"{cfg.last_year}.{int(cfg.export.get('build_counter', 1))}"
+
+
+def _fingerprint(cfg: Config, ind_fp: str) -> str:
+    import hashlib
+
+    h = hashlib.sha256(ind_fp.encode())
+    h.update(cfg.section_hash("export").encode())
+    h.update(json.dumps(COLORMAPS, sort_keys=True).encode())
+    h.update(f"export{EXPORT_VERSION}".encode())
+    return h.hexdigest()[:16]
+
+
+def _sizes(root: Path) -> dict[str, int]:
+    return {
+        str(p.relative_to(root)).replace("\\", "/"): p.stat().st_size
+        for p in root.rglob("*")
+        if p.is_file() and not p.name.startswith(".")
+    }
+
+
+# --------------------------------------------------------------------------- main
+def export_all(
+    cfg: Config,
+    paths: DataPaths,
+    web_out: Path,
+    force: bool = False,
+    workers: int | None = None,
+    cogs: bool = True,
+    bundle: bool = True,
+) -> dict:
+    import zarr
+
+    web_out = Path(web_out)
+    web_out.mkdir(parents=True, exist_ok=True)
+    ind = zarr.open_group(str(paths.indicators), mode="r")
+    cube_root = zarr.open_group(str(paths.cube), mode="r")
+    fp = _fingerprint(cfg, str(ind.attrs.get("fingerprint", "")))
+    state_path = web_out / ".export_state.json"
+    state = json.loads(state_path.read_text()) if state_path.exists() and not force else {}
+    if state.get("fingerprint") != fp:
+        state = {"fingerprint": fp, "layers": {}}
+    ex = cfg.export
+    maxz, quality = int(ex.get("tile_maxzoom", 6)), int(ex.get("webp_quality", 90))
+    alpha = cfg.trend_p
+    defs = cfg.definition_ids
+    wins = cfg.windows()
+    wid = [w.id for w in wins]
+    d0 = defs.index(cfg.default_definition)
+    a, b = cfg.change_pair
+    full = cfg.full_window().id
+
+    # 1 · raster layers -------------------------------------------------------------
+    layers = plan_layers(cfg, decades_for_all=bool(ex.get("decades_for_all_definitions", True)))
+    tiles_dir = web_out / "tiles"
+    todo = [
+        ly for ly in layers
+        if not (tiles_dir / f"{ly['id']}.pmtiles").exists()
+        or state["layers"].get(ly["id"]) != fp
+    ]  # fmt: skip
+    n_workers = workers or max(1, min(len(todo), (os.cpu_count() or 2) - 2, 8))
+    log.info("export: %d layers (%d to render, %d workers)", len(layers), len(todo), n_workers)
+    if todo:
+        with ProcessPoolExecutor(max_workers=n_workers) as pool:
+            futs = {
+                pool.submit(
+                    _render_layer, str(paths.indicators), ly,
+                    str(tiles_dir / f"{ly['id']}.pmtiles"), maxz, quality, alpha,
+                ): ly
+                for ly in todo
+            }  # fmt: skip
+            for fut in as_completed(futs):
+                ly = futs[fut]
+                stats = fut.result()
+                state["layers"][ly["id"]] = fp
+                state_path.write_text(json.dumps(state, indent=1))
+                log.info("tiles %s: %d tiles, %.1f MB", ly["id"], stats["tiles"],
+                         stats["bytes"] / 1e6)  # fmt: skip
+
+    # 2 · point tiles ---------------------------------------------------------------
+    from .points import write_point_tiles
+
+    glacier = ind["glacier"][:]
+    land = ind["land"][:]
+    years = [int(y) for y in cube_root["year"][:]]
+    keep = [k for k, y in enumerate(years) if cfg.first_year <= y <= cfg.last_year]
+    points_dir = web_out / "points"
+    if state.get("points") != fp or not (points_dir / "index.json").exists():
+        if points_dir.exists():
+            shutil.rmtree(points_dir)
+
+        class _Cube:  # restrict the cube to the configured years
+            def __getitem__(self, key):
+                return cube_root["snow_depth_cm"][key][keep[0] : keep[-1] + 1]
+
+        pstats = write_point_tiles(
+            points_dir, _Cube(), glacier, land, years[keep[0] : keep[-1] + 1]
+        )
+        state["points"] = fp
+        state_path.write_text(json.dumps(state, indent=1))
+        log.info("points: %d tiles, %.1f MB", pstats["tiles"], pstats["bytes"] / 1e6)
+
+    # 3 · places and regions -----------------------------------------------------------
+    from ..external import SOURCES, fetch
+    from .places import build_places, write_json
+    from .regions import build_regions
+
+    for name in SOURCES:
+        fetch(name, paths.external)
+    prob = ind["probability"]
+    p_full = prob[d0, wid.index(full)]
+    p_then = prob[d0, wid.index(a)]
+    p_now = prob[d0, wid.index(b)]
+    win_map = {"p_full": full, "p_then": a, "p_now": b}
+    if state.get("places") != fp or not (web_out / "places.json").exists():
+        places = build_places(
+            paths.external, p_full, p_then, p_now, ind["trend"][d0], ind["trend_p"][d0],
+            win_map, cfg.default_definition, alpha,
+        )  # fmt: skip
+        write_json(web_out / "places.json", places)
+        lat = np.asarray(ind["lat"][:])
+        regions = build_regions(
+            paths.external, p_then, p_now, glacier, lat, cfg.default_definition,
+            {"p_then": a, "p_now": b},
+        )  # fmt: skip
+        write_json(web_out / "regions.json", regions)
+        state["places"] = fp
+        state_path.write_text(json.dumps(state, indent=1))
+
+    # 4 · budget -------------------------------------------------------------------
+    budget_total = float(ex.get("budget_total_mb", 400)) * 1e6
+    budget_file = float(ex.get("budget_file_mb", 90)) * 1e6
+    sizes = {k: v for k, v in _sizes(web_out).items() if k != "manifest.json"}
+    if sum(sizes.values()) > budget_total and ex.get("decades_for_all_definitions", True):
+        log.warning("bundle %.0f MB over budget: decades for the default definition only",
+                    sum(sizes.values()) / 1e6)  # fmt: skip
+        layers = plan_layers(cfg, decades_for_all=False)
+    keep_files = {ly["url"] for ly in layers}
+    for p in tiles_dir.glob("*.pmtiles"):
+        if f"tiles/{p.name}" not in keep_files:
+            p.unlink()
+    for p in tiles_dir.glob("*.tmp"):
+        p.unlink()
+    sizes = {k: v for k, v in _sizes(web_out).items() if k != "manifest.json"}
+    total = sum(sizes.values())
+    too_big = {k: v for k, v in sizes.items() if v > budget_file}
+    if too_big:
+        raise RuntimeError(f"files over {budget_file / 1e6:.0f} MB: {too_big}")
+    if total > budget_total:
+        raise RuntimeError(f"web data {total / 1e6:.0f} MB exceeds {budget_total / 1e6:.0f} MB")
+
+    # 5 · manifest -------------------------------------------------------------------
+    dv = data_version(cfg)
+    manifest = {
+        "schema_version": SCHEMA_VERSION,
+        "data_version": dv,
+        "built": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "build_hash": git_hash(),
+        "years": {"first": cfg.first_year, "last": cfg.last_year},
+        "threshold_cm": cfg.threshold_cm if cfg.threshold_cm % 1 else int(cfg.threshold_cm),
+        "attribution": ATTRIBUTION.format(year=datetime.now(UTC).year),
+        "definitions": [
+            {k: d[k] for k in ("id", "label", "short", "description", "default") if k in d}
+            for d in cfg.definitions
+        ],
+        "windows": [w.as_dict() for w in wins],
+        "layers": [{k: v for k, v in ly.items() if k != "src"} for ly in layers],
+        "colormaps": COLORMAPS,
+        "glacier_style": "hatched",
+        "points": {"index": "points/index.json", "tile_deg": 5, "format": "wx-points-v1"},
+        "projections": {"available": False},
+        "places": "places.json",
+        "regions": "regions.json",
+    }
+    write_json(web_out / "manifest.json", manifest)
+    total += (web_out / "manifest.json").stat().st_size
+    log.info("web data: %d files, %.1f MB (largest %s)", len(sizes) + 1, total / 1e6,
+             max(sizes, key=sizes.get))  # fmt: skip
+
+    # 6 · COGs ---------------------------------------------------------------------
+    if cogs:
+        from .cog import write_cog
+
+        cog_dir = paths.cog
+        cog_state = cog_dir / ".export_state.json"
+        if not (cog_state.exists() and json.loads(cog_state.read_text()).get("fp") == fp):
+            tags = {"source": "ERA5-Land (Copernicus C3S)", "data_version": dv,
+                    "license": "CC BY 4.0"}  # fmt: skip
+            for di, d in enumerate(defs):
+                for wi, w in enumerate(wins):
+                    write_cog(
+                        cog_dir / f"probability_pct__{d}__{w.id}.tif",
+                        prob[di, wi],
+                        tags={**tags, "units": "%", "definition": d, "window": w.id},
+                    )
+                    if w.kind == "full" or w.kind == "normal":
+                        n = ind["n_valid"][di, wi].astype("float32")
+                        n[~land] = np.nan
+                        write_cog(
+                            cog_dir / f"valid_years__{d}__{w.id}.tif",
+                            n,
+                            tags={**tags, "units": "years", "definition": d},
+                        )
+                write_cog(
+                    cog_dir / f"change_pp__{d}__{a}__{b}.tif",
+                    ind["change"][di],
+                    tags={**tags, "units": "pp", "definition": d},
+                )
+                write_cog(
+                    cog_dir / f"trend_pp_per_decade__{d}__{full}.tif",
+                    ind["trend"][di],
+                    tags={**tags, "units": "pp/decade", "definition": d},
+                )
+                write_cog(
+                    cog_dir / f"trend_mk_pvalue__{d}__{full}.tif",
+                    ind["trend_p"][di],
+                    tags={**tags, "units": "1", "definition": d},
+                )
+            g = glacier.astype("float32")
+            g[~land] = np.nan
+            write_cog(cog_dir / "glacier_flag.tif", g, tags={**tags, "units": "1 = glacier"})
+            cog_state.write_text(json.dumps({"fp": fp}))
+            log.info("COGs written to %s", cog_dir)
+
+    # 7 · bundle -------------------------------------------------------------------
+    bundle_path = None
+    if bundle:
+        paths.products.mkdir(parents=True, exist_ok=True)
+        bundle_path = paths.products / f"whitexmas-web-data-{dv}.tar.gz"
+        with tarfile.open(bundle_path, "w:gz", compresslevel=6) as tar:
+            for rel in sorted(_sizes(web_out)):
+                tar.add(web_out / rel, arcname=rel)
+        log.info("bundle %s (%.1f MB)", bundle_path, bundle_path.stat().st_size / 1e6)
+    return {"total_bytes": total, "layers": len(layers), "bundle": str(bundle_path)}
