@@ -1,11 +1,13 @@
 // Sends a static file with HTTP range support (PMTiles needs range requests).
 import { createReadStream, statSync } from 'node:fs';
+import { createGzip } from 'node:zlib';
 import path from 'node:path';
 
 /** @type {Record<string, string>} */
 const MIME = {
 	'.html': 'text/html; charset=utf-8',
 	'.js': 'text/javascript',
+	'.mjs': 'text/javascript',
 	'.css': 'text/css',
 	'.json': 'application/json',
 	'.svg': 'image/svg+xml',
@@ -47,6 +49,17 @@ export function sendFile(req, res, file, opts = {}) {
 		return;
 	}
 	res.statusCode = opts.status ?? 200;
+	// Compress text like GitHub Pages does; binary data (gz, pmtiles, png) is sent as is.
+	const compressible = /^(text\/|application\/(json|manifest\+json)|image\/svg)/.test(
+		String(res.getHeader('Content-Type'))
+	);
+	if (compressible && /gzip/.test(String(req.headers['accept-encoding'] ?? ''))) {
+		res.setHeader('Content-Encoding', 'gzip');
+		res.setHeader('Vary', 'Accept-Encoding');
+		if (req.method === 'HEAD') return res.end();
+		createReadStream(file).pipe(createGzip()).pipe(res);
+		return;
+	}
 	res.setHeader('Content-Length', String(size));
 	if (req.method === 'HEAD') return res.end();
 	createReadStream(file).pipe(res);

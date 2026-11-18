@@ -6,10 +6,11 @@
 		layer: Layer | null;
 		colormap: Colormap | null;
 		title: string;
+		subtitle: string;
 		glaciers: boolean;
 	}
 
-	let { layer, colormap, title, glaciers }: Props = $props();
+	let { layer, colormap, title, subtitle, glaciers }: Props = $props();
 	let more = $state(false);
 
 	const gradient = $derived.by(() => {
@@ -55,7 +56,10 @@
 
 <section class="legend" class:more aria-label="Legend">
 	<div class="head">
-		<h2>{title}</h2>
+		<div class="titles">
+			<h2>{title}</h2>
+			{#if subtitle}<p class="sub">{subtitle}</p>{/if}
+		</div>
 		<button class="more-toggle" aria-expanded={more} onclick={() => (more = !more)}>
 			{more ? 'Less' : 'Key'}
 		</button>
@@ -129,9 +133,18 @@
 			display: none;
 		}
 	}
-	h2 {
+	.titles {
 		flex: 1;
-		margin: 0 0 6px;
+		min-width: 0;
+		margin-bottom: 6px;
+	}
+	.sub {
+		margin: 1px 0 0;
+		color: var(--muted);
+		font-size: 0.78rem;
+	}
+	h2 {
+		margin: 0;
 		font-size: 0.85rem;
 		font-weight: 650;
 	}

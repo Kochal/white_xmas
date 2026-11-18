@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import type { Layer } from '#lib/data/manifest.ts';
 	import type { MapView as View } from '#lib/url-state.ts';
-	import 'maplibre-gl/dist/maplibre-gl.css';
 
 	interface Props {
 		dataBase: string;
@@ -68,7 +67,9 @@
 				const [ml, { Protocol }, worker] = await Promise.all([
 					import('maplibre-gl'),
 					import('pmtiles'),
-					import('maplibre-gl/dist/maplibre-gl-worker.mjs?url')
+					import('maplibre-gl/dist/maplibre-gl-worker.mjs?url'),
+					// loaded with the map, so it doesn't block the first paint
+					import('maplibre-gl/dist/maplibre-gl.css')
 				]);
 				if (disposed) return;
 				maplibre = ml;

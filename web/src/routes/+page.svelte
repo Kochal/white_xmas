@@ -52,14 +52,17 @@
 	const definition = $derived(manifest?.definitions.find((d) => d.id === selection.definition));
 	const legendTitle = $derived.by(() => {
 		if (!layer || !definition) return definition?.label ?? '';
-		const period = periods.find((p) => p.value === selection.period)?.label ?? '';
-		const what = {
+		return {
 			probability: 'Chance of a white Christmas',
 			change: 'Change in chance',
-			trend: 'Trend',
+			trend: 'Trend in chance',
 			projection: 'Projected chance'
 		}[layer.kind];
-		return `${what}, ${period} · ${definition.short}`;
+	});
+	const legendSubtitle = $derived.by(() => {
+		if (!definition) return '';
+		const period = periods.find((p) => p.value === selection.period)?.label ?? '';
+		return [period, definition.short].filter(Boolean).join(' · ');
 	});
 	const fixture = $derived(manifest?.data_version.includes('fixture') ?? false);
 	const glaciers = $derived(manifest?.glacier_style === 'hatched');
@@ -174,7 +177,10 @@
 	description="Look up how often there has been snow on the ground at Christmas anywhere on Earth since 1950, how that has changed, and how it changes in a warmer world."
 />
 
-<h1 class="visually-hidden">White Christmas map</h1>
+<svelte:head>
+	<link rel="preload" as="fetch" href={`${DATA_BASE}/manifest.json`} crossorigin="anonymous" />
+	<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />
+</svelte:head>
 
 <div class="stage" class:with-panel={!!at}>
 	{#if manifest}
@@ -192,6 +198,7 @@
 
 	<div class="overlay-top">
 		<div class="controls" class:open={controlsOpen}>
+			<h1 class="intro">How likely is a white Christmas where you live?</h1>
 			<div class="search-row">
 				<div class="search-wrap">
 					<PlaceSearch
@@ -272,7 +279,7 @@
 
 	{#if manifest}
 		<div class="overlay-legend" class:hidden-mobile={!!at}>
-			<Legend {layer} {colormap} title={legendTitle} {glaciers} />
+			<Legend {layer} {colormap} title={legendTitle} subtitle={legendSubtitle} {glaciers} />
 		</div>
 	{/if}
 
@@ -331,6 +338,12 @@
 		background: var(--surface);
 		border-radius: var(--radius);
 		box-shadow: var(--shadow);
+	}
+	.intro {
+		margin: 0 2px 8px;
+		font-size: 1.02rem;
+		line-height: 1.3;
+		font-weight: 650;
 	}
 	.search-row {
 		display: flex;
@@ -466,6 +479,10 @@
 		}
 		.controls {
 			padding: 8px;
+		}
+		.intro {
+			font-size: 0.92rem;
+			margin-bottom: 6px;
 		}
 		.layers-toggle {
 			display: inline-flex;

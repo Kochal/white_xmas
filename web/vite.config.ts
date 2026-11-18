@@ -51,7 +51,15 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			adapter: adapter({ fallback: '404.html' }),
-			paths: { base }
+			paths: { base },
+			prerender: {
+				// The data tree arrives at deploy time (pages.yml), so links into it can't be
+				// crawled during the build.
+				handleHttpError: ({ path, message }) => {
+					if (path.startsWith(`${base}/data/`)) return;
+					throw new Error(message);
+				}
+			}
 		})
 	],
 	define: { __BASE_PATH__: JSON.stringify(base) },
