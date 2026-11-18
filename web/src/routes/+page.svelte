@@ -4,7 +4,8 @@
 	import { DATA_BASE } from '#lib/config.ts';
 	import type { Layer, LayerKind, Manifest } from '#lib/data/manifest.ts';
 	import type { Place } from '#lib/data/places.ts';
-	import { DataSource, type CellLookup } from '#lib/data/source.ts';
+	import type { CellLookup, DataSource } from '#lib/data/source.ts';
+	import { getDataSource } from '#lib/data/client.ts';
 	import PlaceSearch from '#lib/components/PlaceSearch.svelte';
 	import Legend from '#lib/map/Legend.svelte';
 	import MapView from '#lib/map/MapView.svelte';
@@ -134,7 +135,7 @@
 	onMount(() => {
 		const url = parseUrlState(new URLSearchParams(window.location.search));
 		if (url.view) view = url.view;
-		DataSource.open(DATA_BASE)
+		getDataSource()
 			.then(async (source) => {
 				ds = source;
 				manifest = source.manifest;
