@@ -177,6 +177,12 @@
 	description="Look up how often there has been snow on the ground at Christmas anywhere on Earth since 1950, how that has changed, and how it changes in a warmer world."
 />
 
+<svelte:window
+	onkeydown={(e) => {
+		if (e.key === 'Escape' && at && !(e.target instanceof HTMLInputElement)) closePanel();
+	}}
+/>
+
 <svelte:head>
 	<link rel="preload" as="fetch" href={`${DATA_BASE}/manifest.json`} crossorigin="anonymous" />
 	<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />

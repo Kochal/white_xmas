@@ -113,6 +113,13 @@
 					applyLayer(m, layer);
 				});
 				m.on('click', (e) => onselect(e.lngLat.lng, e.lngLat.lat));
+				// keyboard: arrows pan (built in), Enter or Space selects the point at the centre
+				m.getCanvas().addEventListener('keydown', (e) => {
+					if (e.key !== 'Enter' && e.key !== ' ') return;
+					e.preventDefault();
+					const c = m.getCenter();
+					onselect(c.lng, c.lat);
+				});
 				m.on('moveend', () => {
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
@@ -179,7 +186,7 @@
 	class="map"
 	bind:this={container}
 	role="region"
-	aria-label="Map of white Christmas probability. Click anywhere to see that place's history."
+	aria-label="Map of white Christmas probability. Click anywhere, or use the arrow keys and press Enter, to see the history of the point at the centre."
 ></div>
 {#if basemapDown}
 	<p class="basemap-note" role="status">The background map is unavailable right now.</p>

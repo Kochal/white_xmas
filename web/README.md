@@ -60,6 +60,14 @@ On Windows Git Bash, prefix `BASE_PATH=/white_xmas` with `MSYS_NO_PATHCONV=1` so
 | `PUBLIC_SITE_URL`      | `https://kochal.github.io/white_xmas`           | Absolute URL for social preview tags        |
 | `PUBLIC_DOWNLOADS_URL` | `https://github.com/Kochal/white_xmas/releases` | Downloads page links                        |
 
+## Performance
+
+First-load JS is about 70 KB gzipped. MapLibre (about 293 KB gzipped, plus its 155 KB worker) and its CSS
+load after the first paint. Lighthouse on the built site with the fixtures, served locally with gzip
+(`npm run build:fixtures && npm run preview`, then `npx lighthouse http://localhost:4173/`):
+desktop performance 100; mobile (simulated slow 4G, 4× CPU) about 71, where the remaining blocking time is
+MapLibre's bundle being evaluated. Accessibility, best practices and SEO are 100.
+
 ## Deploying to GitHub Pages
 
 `.github/workflows/pages.yml` builds the site with `BASE_PATH=/white_xmas`, downloads

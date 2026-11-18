@@ -19,6 +19,11 @@ test('map loads, search "Munich" opens the panel with a year strip', async ({ pa
 
 	// the selection is in the URL, so the view can be shared
 	await expect(page).toHaveURL(/place=Munich/);
+
+	// Escape closes the panel (outside the search box)
+	await panel.getByTestId('headline').click();
+	await page.keyboard.press('Escape');
+	await expect(panel).toBeHidden();
 });
 
 test('a shared URL restores the selected place', async ({ page }) => {

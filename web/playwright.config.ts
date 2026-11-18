@@ -17,7 +17,8 @@ export default defineConfig({
 	webServer: {
 		command: `npm run build:fixtures && node scripts/serve-build.mjs ${port}`,
 		port,
-		reuseExistingServer: !process.env.CI,
+		// always build and serve fresh, so the test never runs against a stale build/
+		reuseExistingServer: false,
 		timeout: 180_000
 	}
 });
