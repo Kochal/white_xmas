@@ -1,0 +1,33 @@
+import { describe, expect, it } from 'vitest';
+import { formatPct, formatPp, inTenYears, latLonLabel } from './format';
+
+describe('inTenYears: plain-language frequency', () => {
+	it('says "about k in 10 years" in the middle of the range', () => {
+		expect(inTenYears(31)).toBe('about 3 in 10 years');
+		expect(inTenYears(10)).toBe('about 1 in 10 years');
+		expect(inTenYears(86)).toBe('about 9 in 10 years');
+	});
+
+	it('handles the ends honestly', () => {
+		expect(inTenYears(0)).toBe('never');
+		expect(inTenYears(3)).toBe('rarely (less than 1 in 20 years)');
+		expect(inTenYears(97)).toBe('almost every year');
+		expect(inTenYears(100)).toBe('every year');
+		expect(inTenYears(null)).toBe('no data');
+	});
+});
+
+describe('number formatting', () => {
+	it('formats probabilities and changes with a real minus sign', () => {
+		expect(formatPct(31.04)).toBe('31%');
+		expect(formatPct(null)).toBe('–');
+		expect(formatPp(-3.14)).toBe('−3.1 pp');
+		expect(formatPp(2)).toBe('+2.0 pp');
+		expect(formatPp(-3.14, 'pp/decade')).toBe('−3.1 pp/decade');
+	});
+
+	it('labels coordinates with hemispheres', () => {
+		expect(latLonLabel(48.1, 11.6)).toBe('48.1°N 11.6°E');
+		expect(latLonLabel(-33.9, -70.7)).toBe('33.9°S 70.7°W');
+	});
+});
