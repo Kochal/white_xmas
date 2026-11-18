@@ -129,9 +129,14 @@ def render_tile(grid: LayerGrid, z: int, x: int, y: int, res: float = 0.1) -> np
     return out
 
 
-def encode_webp(rgba: np.ndarray, quality: int = 90) -> bytes:
+def encode_webp(rgba: np.ndarray, quality: int = 50, lossless: bool = True) -> bytes:
+    """WebP bytes. Lossless by default: the tiles are blocky with few colours, which lossless
+    WebP packs ~5x smaller than lossy q90, and colours stay exactly the legend's colours.
+    For lossless, ``quality`` is the compression effort."""
     buf = io.BytesIO()
-    Image.fromarray(rgba, "RGBA").save(buf, format="WEBP", quality=quality, method=4)
+    Image.fromarray(rgba, "RGBA").save(
+        buf, format="WEBP", quality=quality, method=4, lossless=lossless, exact=False
+    )
     return buf.getvalue()
 
 
@@ -140,8 +145,9 @@ def write_pmtiles(
     grid: LayerGrid,
     maxzoom: int = 6,
     minzoom: int = 0,
-    quality: int = 90,
+    quality: int = 50,
     metadata: dict | None = None,
+    lossless: bool = True,
 ) -> dict:
     """Render every non-empty tile and write one PMTiles archive. Returns stats."""
     from pmtiles.tile import Compression, TileType, zxy_to_tileid
@@ -154,7 +160,7 @@ def write_pmtiles(
             for x in range(n):
                 img = render_tile(grid, z, x, y)
                 if img is not None:
-                    tiles.append((zxy_to_tileid(z, x, y), encode_webp(img, quality)))
+                    tiles.append((zxy_to_tileid(z, x, y), encode_webp(img, quality, lossless)))
     tiles.sort(key=lambda t: t[0])
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".pmtiles.tmp")

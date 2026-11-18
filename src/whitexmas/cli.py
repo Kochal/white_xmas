@@ -106,6 +106,22 @@ def export(
 
 
 @app.command()
+def sanity(
+    config: ConfigOpt = None,
+    legacy_tif: Annotated[
+        Path | None, typer.Option(help="Legacy any-day probability GeoTIFF (1980-2024)")
+    ] = None,
+    out: Annotated[Path | None, typer.Option(help="Output folder")] = None,
+    verbose: bool = False,
+) -> None:
+    """Write the sanity report (city values, legacy comparison)."""
+    from .sanity import build_report
+
+    cfg, paths = _setup(config, verbose)
+    build_report(cfg, paths, legacy_tif, out or paths.products / "sanity")
+
+
+@app.command()
 def build(
     config: ConfigOpt = None,
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),

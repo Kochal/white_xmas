@@ -72,7 +72,10 @@ glacier:
 export:
   tile_maxzoom: 6
   tile_size: 256
-  webp_quality: 90
+  # Lossless WebP: blocky few-colour tiles compress ~5x better than lossy q90, and colours
+  # stay exactly the colour-map stops. For lossless, quality is the compression effort.
+  webp_lossless: true
+  webp_quality: 50
   point_tile_deg: 5
   # Size budget for the web data bundle (contract): <= 400 MB total, every file <= 90 MB.
   budget_total_mb: 400
