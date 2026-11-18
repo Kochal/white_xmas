@@ -18,11 +18,24 @@
 	const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/positron';
 	const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
 	const SOURCE = 'wx-layer';
+	/** Plain background used when the basemap style can't be loaded, so the data still shows. */
+	const fallbackStyle = (dark: boolean): import('maplibre-gl').StyleSpecification => ({
+		version: 8,
+		sources: {},
+		layers: [
+			{
+				id: 'background',
+				type: 'background',
+				paint: { 'background-color': dark ? '#1b2230' : '#e6ebf1' }
+			}
+		]
+	});
 
 	let container: HTMLDivElement;
 	let map = $state<import('maplibre-gl').Map | null>(null);
 	let styleReady = $state(false);
 	let failed = $state<string | null>(null);
+	let basemapDown = $state(false);
 	let marker: import('maplibre-gl').Marker | null = null;
 	let maplibre: typeof import('maplibre-gl') | null = null;
 
@@ -97,9 +110,18 @@
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
 				});
+				const useFallback = () => {
+					if (styleReady || basemapDown) return;
+					basemapDown = true;
+					m.setStyle(fallbackStyle(dark.matches));
+				};
+				const styleTimer = setTimeout(useFallback, 12_000);
+				m.once('style.load', () => clearTimeout(styleTimer));
 				m.on('error', (e) => {
+					// an error before the style has loaded means the basemap is unreachable
+					if (!styleReady && !(e as { sourceId?: string }).sourceId) useFallback();
 					// tile errors for areas without data are expected; log the rest
-					if (!String(e.error?.message ?? '').includes('404')) console.warn('[map]', e.error);
+					else if (!String(e.error?.message ?? '').includes('404')) console.warn('[map]', e.error);
 				});
 				dark.addEventListener('change', onScheme);
 				map = m;
@@ -152,6 +174,9 @@
 	role="region"
 	aria-label="Map of white Christmas probability. Click anywhere to see that place's history."
 ></div>
+{#if basemapDown}
+	<p class="basemap-note" role="status">The background map is unavailable right now.</p>
+{/if}
 {#if failed}
 	<p class="map-error" role="alert">
 		The map could not start ({failed}). Search still works, and the place panel shows the data.
@@ -163,6 +188,19 @@
 		position: absolute;
 		inset: 0;
 		background: var(--surface-2);
+	}
+	.basemap-note {
+		position: absolute;
+		z-index: 4;
+		left: 50%;
+		bottom: 12px;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 4px 10px;
+		font-size: 0.8rem;
+		background: var(--surface);
+		border-radius: 6px;
+		box-shadow: var(--shadow);
 	}
 	.map-error {
 		position: absolute;
