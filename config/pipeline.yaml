@@ -1,0 +1,78 @@
+# White Christmas pipeline configuration.
+# Every step reads this file; changing a value invalidates the steps that depend on it.
+
+years:
+  first: 1950
+  last: 2025
+
+# ERA5-Land grid (0.1 degree, global). Cell centres: lon = -180 + 0.1 i, lat = 90 - 0.1 j.
+grid:
+  resolution: 0.1
+  nx: 3600
+  ny: 1801
+
+download:
+  dataset: derived-era5-land-daily-statistics
+  variable: snow_depth
+  daily_statistic: daily_mean
+  time_zone: utc+00:00
+  frequency: 1_hourly
+  month: 12
+  days: [24, 25, 26]
+  # One request per year; the CDS limits request size, so a year can be split by day.
+  split_by_day: false
+  max_retries: 6
+  backoff_seconds: 60
+  static:
+    # ERA5-Land invariant fields (land-sea mask, geopotential) and the ERA5 glacier mask.
+    land_sea_mask: true
+    geopotential: true
+    glacier_mask: true
+
+threshold_cm: 1
+
+definitions:
+  - id: christmas_day
+    label: Snow on Christmas Day
+    short: Dec 25
+    description: Daily-mean snow depth on 25 December is at least 1 cm.
+    default: true
+  - id: all_three_days
+    label: Snow on all three days (DWD)
+    short: Dec 24–26
+    description: Daily-mean snow depth is at least 1 cm on each of 24, 25 and 26 December.
+  - id: any_day
+    label: Snow on any of the three days
+    short: any day
+    description: Daily-mean snow depth is at least 1 cm on at least one of 24, 25 or 26 December.
+
+windows:
+  full: true            # first..last
+  normals:              # 30-year "then vs now"
+    - [1961, 1990]
+    - [1996, 2025]
+  decades: true         # 10-year windows ending in the last year, back to the first full decade
+  change:
+    from: 1961_1990
+    to: 1996_2025
+
+trend:
+  window: full
+  significance_p: 0.1   # cells with Mann-Kendall p >= this are hatched as insignificant
+
+glacier:
+  # A cell is flagged as glacier when the glacier mask fraction is >= min_fraction AND, if
+  # require_always_white, it was white (any_day) in every valid year of the full period.
+  min_fraction: 0.5
+  require_always_white: true
+
+export:
+  tile_maxzoom: 6
+  tile_size: 256
+  webp_quality: 90
+  point_tile_deg: 5
+  # Size budget for the web data bundle (contract): <= 400 MB total, every file <= 90 MB.
+  budget_total_mb: 400
+  budget_file_mb: 90
+  # Fallback when over budget: decades only for the default definition.
+  decades_for_all_definitions: true

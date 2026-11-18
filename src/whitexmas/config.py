@@ -1,0 +1,137 @@
+"""Pipeline configuration loaded from config/pipeline.yaml."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .paths import DEFAULT_CONFIG
+
+
+@dataclass(frozen=True)
+class Window:
+    id: str
+    label: str
+    start: int
+    end: int
+    kind: str  # full | normal | decade
+
+    @property
+    def n_years(self) -> int:
+        return self.end - self.start + 1
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "start": self.start,
+            "end": self.end,
+            "kind": self.kind,
+        }
+
+
+def make_window(start: int, end: int, kind: str) -> Window:
+    return Window(id=f"{start}_{end}", label=f"{start}–{end}", start=start, end=end, kind=kind)
+
+
+@dataclass
+class Config:
+    raw: dict[str, Any]
+
+    @classmethod
+    def load(cls, path: str | Path | None = None) -> Config:
+        p = Path(path) if path else DEFAULT_CONFIG
+        with open(p, encoding="utf-8") as f:
+            return cls(yaml.safe_load(f))
+
+    # -- basics -------------------------------------------------------------
+    @property
+    def first_year(self) -> int:
+        return int(self.raw["years"]["first"])
+
+    @property
+    def last_year(self) -> int:
+        return int(self.raw["years"]["last"])
+
+    @property
+    def years(self) -> list[int]:
+        return list(range(self.first_year, self.last_year + 1))
+
+    @property
+    def threshold_cm(self) -> float:
+        return float(self.raw.get("threshold_cm", 1))
+
+    @property
+    def download(self) -> dict[str, Any]:
+        return self.raw["download"]
+
+    @property
+    def definitions(self) -> list[dict[str, Any]]:
+        return self.raw["definitions"]
+
+    @property
+    def definition_ids(self) -> list[str]:
+        return [d["id"] for d in self.definitions]
+
+    @property
+    def default_definition(self) -> str:
+        for d in self.definitions:
+            if d.get("default"):
+                return d["id"]
+        return self.definitions[0]["id"]
+
+    @property
+    def export(self) -> dict[str, Any]:
+        return self.raw.get("export", {})
+
+    @property
+    def glacier(self) -> dict[str, Any]:
+        return self.raw.get("glacier", {})
+
+    @property
+    def trend_p(self) -> float:
+        return float(self.raw.get("trend", {}).get("significance_p", 0.1))
+
+    # -- windows ------------------------------------------------------------
+    def windows(self) -> list[Window]:
+        """Windows in contract order: full, normals, then decades from the latest backwards."""
+        w = self.raw["windows"]
+        out: list[Window] = []
+        if w.get("full", True):
+            out.append(make_window(self.first_year, self.last_year, "full"))
+        for a, b in w.get("normals", []):
+            if a >= self.first_year and b <= self.last_year:
+                out.append(make_window(int(a), int(b), "normal"))
+        if w.get("decades", True):
+            end = self.last_year
+            while end - 9 >= self.first_year:
+                win = make_window(end - 9, end, "decade")
+                if win.id not in {x.id for x in out}:
+                    out.append(win)
+                end -= 10
+        return out
+
+    def window(self, wid: str) -> Window:
+        for w in self.windows():
+            if w.id == wid:
+                return w
+        raise KeyError(wid)
+
+    @property
+    def change_pair(self) -> tuple[str, str]:
+        c = self.raw["windows"].get("change", {})
+        return c.get("from", "1961_1990"), c.get("to", "1996_2025")
+
+    def full_window(self) -> Window:
+        return next(w for w in self.windows() if w.kind == "full")
+
+    # -- hashing ------------------------------------------------------------
+    def section_hash(self, *keys: str) -> str:
+        sub = {k: self.raw.get(k) for k in keys}
+        blob = json.dumps(sub, sort_keys=True, default=str).encode()
+        return hashlib.sha256(blob).hexdigest()[:16]

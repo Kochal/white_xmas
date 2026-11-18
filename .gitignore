@@ -1,0 +1,25 @@
+# data never goes into git
+data/
+web/static/data/
+*.zarr/
+*.nc
+*.grib
+*.tif
+!tests/fixtures/*.tif
+
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# node
+node_modules/
+
+# pane / local scratch
+.pane/
+tmp/
