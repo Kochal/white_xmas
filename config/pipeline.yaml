@@ -31,6 +31,9 @@ download:
 
 threshold_cm: 1
 
+# A window's probability is reported only where at least this share of its years has data.
+min_valid_fraction: 0.8
+
 definitions:
   - id: christmas_day
     label: Snow on Christmas Day
