@@ -111,9 +111,11 @@ def build_ensemble(
     base = np.full((len(defs), NY, NX), np.nan, dtype="float32")
     glacier = np.zeros((NY, NX), dtype=bool)
     sources = set()
+    thresholds = set()
     for di, d in enumerate(defs):
         b = load_baseline(paths, d, s.obs_window)
         sources.add(b.source)
+        thresholds.add((b.threshold_id, b.threshold_cm))
         glacier |= b.glacier
         cells = np.nonzero(np.isfinite(b.p) & (b.n > 0))
         base[di] = b.p
@@ -149,6 +151,10 @@ def build_ensemble(
         attrs={
             "models": json.dumps(names),
             "baseline_source": ",".join(sorted(sources)),
+            # the observed threshold the projections apply to (contract v1.5: default only)
+            "baseline_threshold": json.dumps(sorted(thresholds, key=str)[0])
+            if thresholds
+            else "null",
             "placeholder": any(src != "indicators" for src in sources),
             "settings": json.dumps(s.as_attrs()),
         },

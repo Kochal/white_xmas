@@ -41,6 +41,8 @@ class Baseline:
     glacier: np.ndarray  # (NY, NX) bool
     source: str  # "indicators" or "placeholder-legacy-geotiff"
     window: str
+    threshold_id: str | None = None  # contract v1.5 threshold of the indicators ("calibrated")
+    threshold_cm: float | None = None
 
     @property
     def placeholder(self) -> bool:
@@ -65,7 +67,9 @@ def _from_indicators(path: Path, definition: str, window: str) -> Baseline:
     n = np.asarray(z["n_valid"][di, wi], dtype="int16")
     land = np.asarray(z["land"][:], dtype=bool)
     glacier = np.asarray(z["glacier"][:], dtype=bool)
-    return Baseline(p, n, land, glacier, "indicators", window)
+    tid = z.attrs.get("threshold_id")
+    tcm = z.attrs.get("threshold_cm")
+    return Baseline(p, n, land, glacier, "indicators", window, tid, tcm)
 
 
 def _from_legacy(tif: Path) -> Baseline:

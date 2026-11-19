@@ -149,7 +149,9 @@ def write_proj_tiles(
 
 
 # --------------------------------------------------------------------------- manifest
-def plan_layers(definitions: list[str], gwls: list[float], maxzoom: int = 6) -> list[dict]:
+def plan_layers(
+    definitions: list[str], gwls: list[float], maxzoom: int = 6, threshold: str = "calibrated"
+) -> list[dict]:
     layers = []
     for d in definitions:
         for g in gwls:
@@ -160,6 +162,7 @@ def plan_layers(definitions: list[str], gwls: list[float], maxzoom: int = 6) -> 
                     "kind": "projection",
                     "definition": d,
                     "warming_level": float(g),
+                    "threshold": threshold,
                     "url": f"tiles/{lid}.pmtiles",
                     "colormap": "probability",
                     "minzoom": 0,
@@ -175,6 +178,7 @@ def plan_layers(definitions: list[str], gwls: list[float], maxzoom: int = 6) -> 
                     "kind": "projection_change",
                     "definition": d,
                     "warming_level": float(g),
+                    "threshold": threshold,
                     "url": f"tiles/{lid}.pmtiles",
                     "colormap": "change",
                     "hatch_disagreement": True,
@@ -367,7 +371,8 @@ def export_projections(
 
     from ..config import Config
 
-    ex = Config.load(None).export  # same tile settings as the historical layers
+    cfg = Config.load(None)
+    ex = cfg.export  # same tile settings as the historical layers
     maxzoom = int(ex.get("tile_maxzoom", 6))
     quality = int(ex.get("webp_quality", 50))
     lossless = bool(ex.get("webp_lossless", True))
@@ -395,6 +400,14 @@ def export_projections(
 
         if (target / "proj").exists():
             shutil.rmtree(target / "proj")
+    # contract v1.5: projections exist only for the default threshold
+    default_tid = cfg.default_threshold["id"]
+    tid, tcm = json.loads(ds.attrs.get("baseline_threshold", "null") or "null") or (None, None)
+    if not placeholder and tid not in (None, default_tid):
+        raise RuntimeError(
+            f"the ensemble was built on the {tid!r} baseline ({tcm} cm), but projections are "
+            f"published for the default threshold {default_tid!r} only; rebuild the ensemble"
+        )
     defs = [str(d) for d in ds["definition"].values if str(d) in definitions]
     if not defs:
         raise ValueError(f"none of {definitions} in {pp.ensemble}")
@@ -445,7 +458,8 @@ def export_projections(
     log.info("wx-proj-v1: %d tiles, %.1f MB", pts["tiles"], pts["bytes"] / 1e6)
     frag = {
         "placeholder": placeholder,
-        "layers": plan_layers(defs, gwls, maxzoom),
+        "layers": plan_layers(defs, gwls, maxzoom, threshold=default_tid),
+        "threshold": {"id": tid or default_tid, "cm": tcm},
         "projections": projections_block(
             models,
             warming_levels(models, gwls, load_plan(pp.cmip6)["models"]),

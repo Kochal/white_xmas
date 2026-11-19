@@ -69,6 +69,7 @@ def test_layer_ids_and_block_follow_the_contract(tmp_path):
     proj = next(ly for ly in layers if ly["id"] == "proj__christmas_day__gwl2.0")
     assert proj["kind"] == "projection" and proj["warming_level"] == 2.0
     assert proj["colormap"] == "probability" and proj["url"].endswith("gwl2.0.pmtiles")
+    assert all(ly["threshold"] == "calibrated" for ly in layers)  # contract v1.5
     chg = next(ly for ly in layers if ly["id"] == "projchange__christmas_day__gwl2.0")
     assert chg["kind"] == "projection_change" and chg["colormap"] == "change"
     assert chg["hatch_disagreement"] is True and "from" not in chg
@@ -96,7 +97,7 @@ def test_layer_ids_and_block_follow_the_contract(tmp_path):
     assert out["projections"]["available"] is True
 
 
-def _tiny_ensemble(root, placeholder: bool):
+def _tiny_ensemble(root, placeholder: bool, threshold=None):
     import xarray as xr
 
     from whitexmas.projections.settings import ProjPaths
@@ -106,7 +107,12 @@ def _tiny_ensemble(root, placeholder: bool):
     xr.Dataset(
         {"p50": (("definition", "gwl", "lat", "lon"), np.zeros((1, 1, 2, 2), "float32"))},
         coords={"definition": ["christmas_day"], "gwl": [2.0], "lat": [0.0, 1.0], "lon": [0, 1]},
-        attrs={"placeholder": placeholder, "models": "[]", "settings": "{}"},
+        attrs={
+            "placeholder": placeholder,
+            "models": "[]",
+            "settings": "{}",
+            "baseline_threshold": json.dumps(threshold),
+        },  # fmt: skip
     ).to_zarr(pp.ensemble, mode="w")
     return pp
 
@@ -254,3 +260,14 @@ def test_patch_manifest_writes_utf8(tmp_path):
     patch_manifest(m, {"layers": [], "projections": block})
     out = json.loads(m.read_bytes().decode("utf-8"))  # strict UTF-8, whatever the OS locale
     assert out["projections"]["warming_levels"][0]["label"] == "+2 °C"
+
+
+def test_projections_are_exported_for_the_default_threshold_only(tmp_path):
+    import pytest
+
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.export import export_projections
+
+    _tiny_ensemble(tmp_path, placeholder=False, threshold=["raw", 1])
+    with pytest.raises(RuntimeError, match="default threshold"):
+        export_projections(DataPaths(tmp_path), cogs=False)
