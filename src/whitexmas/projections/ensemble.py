@@ -5,8 +5,8 @@ Output ``interim/projections/projections.zarr`` (dims ``definition, gwl, lat, lo
 
 - ``p10``, ``p50``, ``p90``: 10th, 50th, 90th percentile of the projected probability (%)
 - ``change``: ``p50`` minus the baseline (percentage points)
-- ``agree``: at least two thirds of the models agree on the direction of the change
-  (decrease, increase, or no change)
+- ``agree``: at least two thirds of the models agree on the direction of the change of their
+  projected probability (decrease, increase, or no change: less than ``NO_CHANGE_PP``)
 - ``n_models``: models with a value in the cell
 - ``baseline[definition, lat, lon]``, ``glacier[lat, lon]``
 
@@ -29,7 +29,16 @@ from .settings import ProjPaths, ProjSettings
 from .transfer import apply_change
 
 log = logging.getLogger(__name__)
-ZERO = 1e-6  # |delta| below this counts as "no change"
+NO_CHANGE_PP = 0.5
+"""A model "agrees on no change" in a cell when its projected probability differs from today's
+ERA5-Land probability by less than this many percentage points (decision S4 (b), 2026-11-19).
+
+The vote is on the model's projected probability, not on its log-odds change: a change too
+small to show (below half a percentage point, i.e. it rounds to today's whole per cent), or one
+that cannot show (a decline from 0 %, a rise from 100 %), is "no change". With the earlier rule
+(|delta| < 1e-6) the bilinear regrid mixed exact zeros with tiny non-zero values, so places
+where every model projects today's 0 % were hatched as "models disagree". The same threshold
+applies to every definition, warming level, layer and point tile."""
 
 
 def nan_percentiles(x: np.ndarray, qs) -> np.ndarray:
@@ -52,13 +61,16 @@ def nan_percentiles(x: np.ndarray, qs) -> np.ndarray:
     return out
 
 
-def agreement(deltas: np.ndarray, share: float = 2 / 3) -> np.ndarray:
-    """``deltas[model, cell]`` → True where at least ``share`` of the models with a value agree
-    on the direction (negative, positive or zero)."""
-    valid = np.isfinite(deltas)
+def agreement(
+    change_pp: np.ndarray, share: float = 2 / 3, no_change_pp: float = NO_CHANGE_PP
+) -> np.ndarray:
+    """``change_pp[model, cell]``: each model's projected probability minus today's, in pp.
+    True where at least ``share`` of the models with a value agree on the direction: decrease
+    (≤ −``no_change_pp``), increase (≥ ``no_change_pp``) or no change (in between)."""
+    valid = np.isfinite(change_pp)
     nval = valid.sum(axis=0)
-    neg = (valid & (deltas < -ZERO)).sum(axis=0)
-    pos = (valid & (deltas > ZERO)).sum(axis=0)
+    neg = (valid & (change_pp <= -no_change_pp)).sum(axis=0)
+    pos = (valid & (change_pp >= no_change_pp)).sum(axis=0)
     zero = nval - neg - pos
     best = np.maximum(np.maximum(neg, pos), zero)
     return (nval > 0) & (best >= share * nval - 1e-9)
@@ -145,7 +157,6 @@ def build_ensemble(
         base[di] = b.p
         for gi, g in enumerate(gwls):
             proj = np.full((len(files), len(cells[0])), np.nan, dtype="float32")
-            dl = np.full_like(proj, np.nan)
             for mi, f in enumerate(files):
                 with xr.open_dataset(f) as ds:
                     if d not in ds["definition"].values:
@@ -154,12 +165,12 @@ def build_ensemble(
                     lat, lon = ds["lat"].values, ds["lon"].values
                 if not np.isfinite(delta).any():
                     continue
-                dl[mi], proj[mi] = project_model(delta, lat, lon, b.p, b.n, cells)
+                _, proj[mi] = project_model(delta, lat, lon, b.p, b.n, cells)
             q = nan_percentiles(proj, (10, 50, 90))
             for k, v in zip(("p10", "p50", "p90"), q, strict=True):
                 out[k][di, gi][cells] = v
             out["change"][di, gi][cells] = q[1] - b.p[cells]
-            agree[di, gi][cells] = agreement(dl)
+            agree[di, gi][cells] = agreement(proj - b.p[cells][None, :])
             nmod[di, gi][cells] = np.isfinite(proj).sum(axis=0)
             log.info("ensemble %s +%s °C: %d models, %d cells", d, g, len(files), len(cells[0]))
     tlat, tlon = target_grid()

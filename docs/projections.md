@@ -199,11 +199,14 @@ The full sensitivity test across all models is part of Phase 2 validation.
    and map back: `p' = ((n+1)·expit(logit((p·n + ½)/(n+1)) + Δ) − ½)/n`, clipped to 0–100 %.
    With no change this returns `p` exactly, and a 100 % cell can still decline.
 7. **Ensemble:** median, 10th and 90th percentile of `p'` across models. **Agreement:** at least
-   two thirds of the models with a value agree on the direction of the change, where "no change"
-   (`Δ = 0`, e.g. a model cell with snow in every year of both windows) counts as a direction of
-   its own (contract v1.3 states this for the hatching and the `wx-proj-v1` agreement bit).
-   Without that, cells that keep snow in every model would be flagged as disagreeing. (Before the
-   estimator fix such a model cell got `Δ = −0.40`, not 0, so "no change" hardly ever occurred.)
+   two thirds of the models with a value agree on the direction of the change of their projected
+   probability `p'` against today's `p`: a decrease (`p' − p ≤ −0.5` pp), an increase
+   (`≥ +0.5` pp), or **no change** (`|p' − p| < 0.5` pp, `ensemble.NO_CHANGE_PP`), which counts
+   as a direction of its own (contract v1.3 states this for the hatching and the `wx-proj-v1`
+   agreement bit). A change too small to show in whole per cent, or one that cannot show (a
+   decline from 0 %, a rise from 100 %), is "no change", so a place where every model projects
+   today's value is not flagged. The same threshold applies to every layer, definition and
+   warming level (decision S4 (b), 2026-11-19; until then "no change" meant `|Δ| < 10⁻⁶`).
 
 Why log-odds: a change of "−20 percentage points" means something very different at 25 % and at
 95 %. Log-odds is the scale on which a logistic relation between snow and temperature is linear,
@@ -300,26 +303,26 @@ map).
 | Helsinki | 50 % | 46 % (33–54) | 34 % (23–43) | 23 % (15–34) |
 | Moscow | 87 % | 82 % (74–88) | 77 % (62–84) | 61 % (33–76) |
 | Warsaw | 13 % | 11 % (5–15) | 9 % (4–12) | 5 % (1–10) |
-| Berlin | 7 % | 5 % (2–9) | 3 % (1–8) | 2 % (0–5) |
+| Berlin | 7 % | 5 % (2–9) ¹ | 3 % (1–8) | 2 % (0–5) |
 | Prague | 10 % | 8 % (3–10) | 6 % (3–9) | 4 % (1–6) |
 | Vienna | 10 % | 7 % (4–10) | 7 % (3–12) | 4 % (1–8) |
 | Munich | 27 % | 22 % (14–28) | 18 % (11–27) | 12 % (7–21) |
 | Zurich | 27 % | 22 % (14–30) | 16 % (10–27) | 10 % (5–15) |
-| Innsbruck | 93 % | 91 % (83–94) | 89 % (79–93) | 81 % (69–89) |
-| London | 0 % | 0 % (0–0) ¹ | 0 % (0–0) ¹ | 0 % (0–0) ¹ |
+| Innsbruck | 93 % | 91 % (83–94) ¹ | 89 % (79–93) | 81 % (69–89) |
+| London | 0 % | 0 % (0–0) | 0 % (0–0) | 0 % (0–0) |
 | Montreal | 70 % | 65 % (50–70) | 53 % (42–69) | 43 % (28–63) |
 | Toronto ² | 37 % | 31 % (22–40) | 27 % (16–39) | 19 % (9–28) |
 | Minneapolis | 63 % | 57 % (40–68) | 49 % (30–69) | 35 % (18–50) |
 | Chicago | 33 % | 30 % (18–40) ¹ | 27 % (14–37) | 15 % (9–27) |
 | Boston | 23 % | 20 % (14–30) ¹ | 16 % (9–25) | 10 % (5–17) |
-| New York | 3 % | 2 % (1–5) | 2 % (0–3) | 1 % (0–3) |
+| New York | 3 % | 2 % (1–5) ¹ | 2 % (0–3) | 1 % (0–3) |
 | Denver | 40 % | 37 % (24–46) | 27 % (19–40) | 26 % (15–38) |
-| Sapporo | 100 % | 99 % (98–100) | 99 % (97–100) | 96 % (89–99) |
+| Sapporo | 100 % | 99 % (98–100) ¹ | 99 % (97–100) | 96 % (89–99) |
 
 These are the fixed numbers (`products/projections_v2/`, common-`m` estimator); the released
-data-2025.1 numbers are in the before/after table under "Windows of different length". London
-is hatched because its models split between "no change" and small decreases or increases, even
-though the median stays at 0 %. (Cells as in the table before: Oslo is the 59.91 °N, 10.75 °E
+data-2025.1 numbers are in the before/after table under "Windows of different length". At
++1.5 °C many models move by less than 0.5 pp, so several places with a small median change are
+marked ¹ (the models split between "no change" and a decrease). (Cells as in the table before: Oslo is the 59.91 °N, 10.75 °E
 cell; `places.json` uses the neighbouring cell, 77 % today.)
 
 ² Toronto's own ERA5-Land cell is Lake Ontario (no data); like `places.json`, the row uses the
@@ -331,9 +334,11 @@ What the numbers say:
 
 - **The decline is gradual at +1.5 °C and clear by +2 °C.** Over land 25–75 °N, in places where a
   white Christmas is uncertain today (10–90 %), the average probability falls from 47 % today
-  to 42 % at +1.5 °C, 39 % at +2 °C and 32 % at +3 °C. Models agree on the direction in 71 %,
-  84 % and 91 % of those places (78, 90 and 94 % before the estimator fix, which counted a
-  model that is white in every year of both windows as a decrease).
+  to 42 % at +1.5 °C, 39 % at +2 °C and 32 % at +3 °C. Models agree on the direction in 63 %,
+  81 % and 90 % of those places (data-2025.1: 78, 90 and 94 %). Two things lower it: the old
+  estimator counted nearly-white models as declining, and a model that moves by less than
+  0.5 pp now counts as "no change" rather than as a small decrease. At +1.5 °C many models change
+  by less than that.
 - **Mid-latitude and Nordic cities lose the most:** Stockholm 30 → 16 % and Helsinki 50 → 34 % at
   +2 °C; Minneapolis 63 → 35 %, Montreal 70 → 43 % and Munich 27 → 12 % at +3 °C.
 - **Places where Christmas snow is already rare** (Berlin 7 %, Vienna 10 %, New York 3 %) fall
@@ -599,7 +604,7 @@ data-2025.1; 2,188,137 land cells, area weighted by cos(latitude)):
 | Mean absolute change | 0.86 pp | 0.84 pp | 0.85 pp |
 | Largest change up / down | +10.2 / −10.2 pp | +10.2 / −12.4 pp | +22.3 / −13.7 pp |
 | Land 25–75 °N changed by ≥ 1 pp | 15.1 % | 14.3 % | 17.3 % |
-| Agreement flag flipped (land) | 23.2 % | 20.4 % | 17.7 % |
+| Agreement flag flipped (land; with the 0.5 pp rule) | 17.9 % | 16.5 % | 15.0 % |
 
 Most of the "≥ 0.5 pp" area is the 0.8 pp artefact disappearing from never-white cells (54 % of
 land) and always-white cells (28 %). Changes of 5 pp or more are in snowy places (median
@@ -611,7 +616,29 @@ against 29/30 or 30/30, give Δ = −0.397). Removing it weakens the decline the
 nearest model cells no model is, yet the change moved up for 18 of 19 models; dropping the
 saturated models leaves Oslo and Moscow where they are (independent review of PR #6). Places
 where snow is rare decline a little more. The agreement flag changes because "no change" now
-actually occurs.
+actually occurs, and because of the 0.5 pp rule below.
+
+**Agreement: "no change" is a change below 0.5 pp (decision S4 (b), 2026-11-19).** With the
+estimator fixed, "no change" became a real vote. With the earlier rule (`|Δ| < 10⁻⁶`), the
+bilinear regrid mixed exact zeros with tiny non-zero values, so 6.4 % of never-white land at
++1.5 °C was hatched as "models disagree" although p10 = p50 = p90 = today's 0 % (London's panel
+said "Models disagree on the direction of change here"). A model now votes "no change" when its
+projected probability moves by less than 0.5 pp. Hatched share of land (cos-latitude weighted,
+`christmas_day`):
+
+| | data-2025.1 | fixed estimator, `\|Δ\| < 10⁻⁶` | fixed estimator, < 0.5 pp (used) |
+|---|---|---|---|
+| Never-white land (0 % today), hatched although p10 = p50 = p90 = 0 %: +1.5 / +2 / +3 °C | 0.4 / 0.2 / 0.3 % | 6.4 / 4.8 / 3.7 % | **0.0 / 0.0 / 0.0 %** |
+| Never-white land, all hatched | 4.7 / 4.6 / 4.0 % | 7.9 / 6.0 / 4.3 % | **0.0 / 0.1 / 0.0 %** |
+| Always-white land (100 % today), hatched | 29.7 / 29.4 / 29.4 % | 18.9 / 17.0 / 14.8 % | **5.7 / 8.8 / 10.2 %** |
+| All land, hatched | 15.3 / 13.1 / 11.9 % | 15.8 / 11.6 / 8.4 % | **10.1 / 7.1 / 5.3 %** |
+| Transition cells (10–90 %, 25–75 °N), hatched | 21.6 / 10.4 / 6.0 % | 28.6 / 15.7 / 9.3 % | **36.8 / 19.1 / 10.1 %** |
+
+The rule removes the hatching where nothing visible changes. The price is in the transition
+cells at +1.5 °C: models whose change is below half a point (often the hot models, which are
+already near +1.5 °C in the baseline years) now vote "no change" instead of "decrease", so more
+of those cells are hatched (37 % instead of 29 %). That is a fair reading of a small,
+model-dependent signal. The projected probabilities themselves (p10, p50, p90) do not change.
 
 | Place | Today | +1.5 °C (data-2025.1 → fixed) | +2 °C | +3 °C |
 |---|---|---|---|---|
@@ -647,11 +674,23 @@ change of 0.001–0.003 pp in the ensemble median (measured by rebuilding the me
 GFDL-CM4 on its old mask). The counts `k`, `n` of all 21 models are identical to the released
 files.
 
-**Rebuild (2026-11-19, this machine, one step at a time):** `changes` 194 s (21 models),
-`validate` 127 s, `ensemble` 63 s, `export --workers 2` 115 s. Output: `interim/projections_v2/`
-(models 12 MB, ensemble, validation) and `products/projections_v2/` (`web/`: 6 layers 15.0 MB
-and 1391 point tiles 1.5 MB; `cog/` 26 MB; `manifest_fragment.json`, identical to the released
-one: same layer ids, URLs and `projections` block, so no contract change).
+**Rebuild (2026-11-19, this machine, one step at a time):**
+
+- First build: `changes` 194 s (21 models), `validate` 127 s, `ensemble` 63 s,
+  `export --workers 2` 115 s.
+- Final rebuild with the guards and the 0.5 pp rule: `changes --force` 174 s (data identical;
+  the files now record `sftlf` for 19 models and `indicators` for GFDL-CM4 and NESM3),
+  `ensemble` 64 s, `export --workers 2` 115 s. Of the products, only the three `projchange`
+  layers and 423 of 1391 point tiles changed (the agreement); p10/p50/p90 are unchanged.
+
+Output:
+
+- `interim/projections_v2/`: models 12 MB, ensemble, validation.
+- `products/projections_v2/web/`: 6 layers 15.5 MB, 1391 point tiles 1.5 MB.
+- `products/projections_v2/cog/`: 26 MB.
+- `manifest_fragment.json`: identical to the released one (same layer ids, URLs and
+  `projections` block, so no contract change) except for the new top-level `"estimator"` key,
+  which is not copied into the manifest.
 
 **A data-2025.2 release from it (not built).** Into a fresh web-out, never over a released one.
 Commands in PowerShell syntax (this machine); in a POSIX shell write
