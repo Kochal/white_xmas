@@ -276,6 +276,8 @@ def test_select_and_examine_falls_back_within_a_box(tmp_path, monkeypatch, cfg):
         ("XX000000001", "excluded"), ("XX000000002", "used"),
     ]  # fmt: skip
     assert rows[1]["rank_in_box"] == 2 and info["boxes"] == 1
+    assert info["examined_ids"] == ["XX000000001", "XX000000002"]
+    assert len(info["inventory_sha256"]) == 64 and info["_elevation_retry_rows"] == []
     assert info["boxes_without_usable_station"] == 0
     assert rows[1]["model_pct"][5] == pytest.approx(rows[1]["obs_pct"])
 
@@ -429,3 +431,16 @@ def test_lake_and_gsod_flags(tmp_path):
     assert rec.dec_gsod_share == 1.0
     row = sel.evaluate_station(meta(), rec, model_from(set()), YEARS, (1, 1), (0, 0), 300.0, RULES)
     assert "gsod_sourced" in row["flags"] and "lake" not in row["flags"]
+
+
+def test_symmetric_always_white_rule(tmp_path):
+    import dataclasses
+
+    allw = {y: 50 for y in YEARS}
+    p = write_station(tmp_path / "s.csv.gz", "XX000000016", allw, other_dec_snwd=50)
+    row = evaluate(p, model=model_from(set(YEARS[::2])))  # ERA5-Land white only half the time
+    assert row["reason"] == "always white"
+    sym = dataclasses.replace(RULES, always_white_model_cm=5)
+    assert sel.classify(row, sym) == ("used", "")  # a real disagreement, kept by the symmetric rule
+    row2 = evaluate(p, model=model_from(set(YEARS)))
+    assert sel.classify(row2, sym) == ("separated", "always white")

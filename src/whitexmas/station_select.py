@@ -133,6 +133,7 @@ class Rules:
     min_snowfall_mm: int = 200
     max_snowfall_without_depth_share: float = 0.2
     always_white_pct: float = 95
+    always_white_model_cm: int | None = None  # also require ERA5-Land ≥ T white (sensitivity)
     never_white_pct: float = 5
     max_elev_diff_m: float = 200
     high_mountain_m: float = 1500
@@ -154,6 +155,7 @@ class AutoSettings:
     box_deg: float = 1.0
     max_tries: int = 6
     concurrency: int = 4
+    pin: str | None = None  # a stations.json whose examined ids limit the candidates
 
     @classmethod
     def from_config(cls, sc: dict) -> AutoSettings:
@@ -339,7 +341,10 @@ def classify(row: dict, rules: Rules) -> tuple[str, str]:
         return "excluded", f"zero snow depth despite snowfall ({swd} of {snowy} snowy Decembers)"
     if row["coverage"] < rules.min_coverage:
         return "excluded", f"patchy record ({row['coverage']:.0%} of years)"
-    if row["obs_pct"] >= rules.always_white_pct:
+    mcm = rules.always_white_model_cm
+    if row["obs_pct"] >= rules.always_white_pct and (
+        mcm is None or row["model_pct"].get(mcm, 0.0) >= rules.always_white_pct
+    ):
         return "separated", "always white"
     if row["obs_pct"] < rules.never_white_pct and row["model_pct"][1] < rules.never_white_pct:
         return "separated", "almost never white"

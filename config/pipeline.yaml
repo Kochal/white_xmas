@@ -122,6 +122,7 @@ stations:
     box_deg: 1.0             # keep one station per 1 x 1 degree box (longest SNWD span first)
     max_tries: 6             # if a box's station fails a data-quality rule, try the next one
     concurrency: 4           # parallel downloads from NCEI (never more than 4)
+    pin: null                # path to a stations.json: rerun on exactly its examined stations
   min_dec_completeness: 0.9  # auto: SNWD on >= 90 % of the December days with PRCP/temperature
   max_incomplete_share: 0.2  # auto: more incomplete Decembers than this -> zeros probably not reported
   min_snowfall_mm: 200       # auto: a December with >= 20 cm snowfall but snow depth never > 0 ...

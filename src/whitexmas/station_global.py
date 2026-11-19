@@ -111,6 +111,11 @@ def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tupl
     metas = ghcn.read_stations(st_txt)
     inv = ghcn.read_inventory(inv_txt)
     first, last = cfg.first_year, cfg.last_year
+    if auto.pin:
+        pin = json.loads(Path(auto.pin).read_text(encoding="utf-8"))
+        ids = set(pin["selection"]["examined_ids"])
+        inv = {k: v for k, v in inv.items() if k in ids}
+        log.info("auto: candidates pinned to the %d stations examined in %s", len(ids), auto.pin)
 
     def cell_of(m):
         c = cube.cell_of(m)
@@ -150,6 +155,7 @@ def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tupl
         log.info("auto round %d: %d stations examined, %d boxes still open", rnd + 1, len(want),
                  len(still))  # fmt: skip
         open_boxes = still
+    alt = elevation_retry(rows, boxes, tries, auto, metas, cube, gdir, rules, first, last)
     info = {
         "inventory_snwd_stations": n_inv,
         "with_min_span": n_span,
@@ -164,8 +170,47 @@ def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tupl
         - len({tuple(r["box"]) for r in rows if not sel.data_quality_failed(r)}),
         "boxes_stopped_at_max_tries": sum(1 for b in open_boxes if tries[b] < len(boxes[b])),
         "snapshot": sel.snapshot_info(gdir),
+        "inventory_sha256": _sha256(inv_txt),
+        "stations_sha256": _sha256(st_txt),
+        "pinned_to": auto.pin,
+        "examined_ids": sorted(r["id"] for r in rows),
+        "elevation_retry_examined": len(alt),
+        "_elevation_retry_rows": alt,  # for the sensitivity table only; not written out
     }
     return rows, info
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def elevation_retry(rows, boxes, tries, auto, metas, cube, gdir, rules, first, last) -> list:
+    """Sensitivity only: where a box's station was separated for its elevation difference, try the
+    next candidates (up to ``max_tries`` more) for one that is neither excluded nor separated."""
+    picked: dict[tuple, dict] = {}
+    for r in sorted(rows, key=lambda r: (tuple(r["box"]), r["rank_in_box"])):
+        if not sel.data_quality_failed(r):
+            picked.setdefault(tuple(r["box"]), r)
+    todo = {b for b, r in picked.items() if r["reason"].startswith("cell ")}
+    alt: list[dict] = []
+    for _ in range(auto.max_tries):
+        want = {b: boxes[b][tries[b]] for b in todo if tries[b] < len(boxes[b])}
+        if not want:
+            break
+        ghcn.fetch_stations(sorted(want.values()), gdir, auto.concurrency)
+        for b, sid in sorted(want.items(), key=lambda kv: kv[1]):
+            tries[b] += 1
+            row = examine(sid, metas, cube, gdir, rules, first, last)
+            if row is None:
+                continue
+            row["box"], row["rank_in_box"] = list(b), tries[b]
+            alt.append(row)
+            if row["status"] == "used":
+                todo.discard(b)
+    log.info("elevation retry: %d more stations examined", len(alt))
+    return alt
 
 
 def list_set(cfg: Config, paths: DataPaths, cube: CubeColumns) -> list[dict]:
@@ -185,7 +230,11 @@ def list_set(cfg: Config, paths: DataPaths, cube: CubeColumns) -> list[dict]:
 
 
 def assess(
-    rows: list[dict], thresholds: list[int], n_boot: int = 1000, rules: sel.Rules | None = None
+    rows: list[dict],
+    thresholds: list[int],
+    n_boot: int = 1000,
+    rules: sel.Rules | None = None,
+    alt_rows: list[dict] | None = None,
 ) -> dict:
     used = [r for r in rows if r["status"] == "used"]
     ok = [r for r in rows if r["status"] != "excluded"]
@@ -219,11 +268,17 @@ def assess(
             [r for r in used if "high_mountain" in r["flags"]], thresholds, FOCUS_CM, n_boot
         ),
         "any3": _any3(used, thresholds),
-        "sensitivity": sensitivity(rows, rules, thresholds, n_boot) if rules else [],
+        "sensitivity": sensitivity(rows, rules, thresholds, n_boot, alt_rows) if rules else [],
     }
 
 
-def sensitivity(rows: list[dict], rules: sel.Rules, thresholds: list[int], n_boot: int) -> list:
+def sensitivity(
+    rows: list[dict],
+    rules: sel.Rules,
+    thresholds: list[int],
+    n_boot: int,
+    alt_rows: list[dict] | None = None,
+) -> list:
     """The headline numbers under alternative rules (one station per box throughout)."""
     import dataclasses
 
@@ -241,10 +296,36 @@ def sensitivity(rows: list[dict], rules: sel.Rules, thresholds: list[int], n_boo
     used = [r for r in rows if r["status"] == "used"]
     loose_cov = dataclasses.replace(rules, min_coverage=0.5, min_years=10)
     no_elev = dataclasses.replace(rules, max_elev_diff_m=float("inf"))
+    keep_white = dataclasses.replace(rules, always_white_pct=101)
+    sym_white = dataclasses.replace(rules, always_white_model_cm=FOCUS_CM)
+    keep_both = dataclasses.replace(rules, always_white_pct=101, never_white_pct=-1)
+
+    def with_retry() -> list[dict]:
+        """Main selection, but boxes separated for elevation take the retried station if used."""
+        alt = {}
+        for r in sorted(alt_rows or [], key=lambda r: r["rank_in_box"]):
+            if r["status"] == "used":
+                alt.setdefault(tuple(r["box"]), r)
+        picked: dict[tuple, dict] = {}
+        for r in sorted(rows, key=lambda r: (tuple(r["box"]), r["rank_in_box"])):
+            if not sel.data_quality_failed(r):
+                picked.setdefault(tuple(r["box"]), r)
+        out = []
+        for b, r in picked.items():
+            if r["status"] == "used":
+                out.append(r)
+            elif r["reason"].startswith("cell ") and b in alt:
+                out.append(alt[b])
+        return out
+
     variants = [
         ("main rules", used),
         ("coverage ≥ 50 %, ≥ 10 years", per_box(loose_cov)),
         ("elevation mismatch not separated", per_box(no_elev)),
+        ("boxes separated for elevation try the next station", with_retry()),
+        ("always-white stations kept", per_box(keep_white)),
+        ("always white only if ERA5-Land ≥ 5 cm is also ≥ 95 %", per_box(sym_white)),
+        ("always- and almost-never-white stations kept", per_box(keep_both)),
         ("only stations within 50 m of their cell's elevation", [r for r in used if is_flat(r)]),
         (
             "only stations within 100 m of their cell's elevation",
@@ -430,7 +511,8 @@ def run(cfg: Config, paths: DataPaths, out_dir: Path | None = None, n_boot: int 
     countries = ghcn.read_countries(paths.external / "ghcn" / "ghcnd-countries.txt")
     for r in rows:
         r["country_name"] = countries.get(r["country"], r["country"])
-    stats = assess(rows, thresholds, n_boot, sel.Rules.from_config(sc))
+    alt_rows = info.pop("_elevation_retry_rows", [])
+    stats = assess(rows, thresholds, n_boot, sel.Rules.from_config(sc), alt_rows)
     d17 = list_set(cfg, paths, cube)
     d17_used = [r for r in d17 if r["status"] == "used"]
     result = {
