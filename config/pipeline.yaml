@@ -30,7 +30,13 @@ download:
     glacier_mask: true
     lake_cover: true      # inland water: cells with lake_cover >= 0.5 are treated as water
 
+# ERA5-Land daily-mean snow depth that counts as "snow on the ground", in whole centimetres
+# (the cube and the point tiles store whole cm, so fractional values are rejected).
 threshold_cm: 1
+
+# Optional, contract v1.4: the depth at a weather station that threshold_cm was calibrated to
+# match (see `whitexmas stations`). null = threshold_cm is used as is, without calibration.
+station_equivalent_cm: null
 
 # A window's probability is reported only where at least this share of its years has data.
 min_valid_fraction: 0.8
@@ -39,16 +45,16 @@ definitions:
   - id: christmas_day
     label: Snow on Christmas Day
     short: Dec 25
-    description: Daily-mean snow depth on 25 December is at least 1 cm.
+    description: Daily-mean snow depth on 25 December is at least {threshold_cm} cm.
     default: true
   - id: all_three_days
     label: Snow on all three days (DWD)
     short: Dec 24–26
-    description: Daily-mean snow depth is at least 1 cm on each of 24, 25 and 26 December.
+    description: Daily-mean snow depth is at least {threshold_cm} cm on each of 24, 25 and 26 December.
   - id: any_day
     label: Snow on any of the three days
     short: any day
-    description: Daily-mean snow depth is at least 1 cm on at least one of 24, 25 or 26 December.
+    description: Daily-mean snow depth is at least {threshold_cm} cm on at least one of 24, 25 or 26 December.
 
 windows:
   full: true            # first..last

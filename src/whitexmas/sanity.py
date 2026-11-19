@@ -22,6 +22,10 @@ from .paths import DataPaths
 
 log = logging.getLogger(__name__)
 
+# The legacy map was built with a fixed 1 cm threshold (on hourly maxima), so the comparison
+# always uses 1 cm, whatever threshold the site uses.
+LEGACY_THRESHOLD_CM = 1
+
 CITIES = [
     ("Munich", 48.137, 11.575),
     ("Oslo", 59.913, 10.739),
@@ -96,6 +100,9 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
         "built": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "cities": cities,
         "windows": {"full": full, "then": a, "now": b},
+        "threshold_cm": cfg.threshold_cm,
+        "station_equivalent_cm": cfg.station_equivalent_cm,
+        "legacy_threshold_cm": LEGACY_THRESHOLD_CM,
     }
 
     if legacy_tif and legacy_tif.exists():
@@ -109,7 +116,7 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
         rows = legacy.shape[0]
         sel = (years >= 1980) & (years <= 2024)
         block = cube["snow_depth_cm"][sel, :, :rows, :]
-        w = white(block, "any_day", cfg.threshold_cm)
+        w = white(block, "any_day", LEGACY_THRESHOLD_CM)
         new, _ = probability(w, min_valid=int(np.ceil(0.8 * sel.sum())))
         land = ind["land"][:rows]
         glac = ind["glacier"][:rows]
@@ -150,6 +157,11 @@ def _fmt(v, nd=1) -> str:
 
 def _html(r: dict, defs: list[str]) -> str:
     w = r["windows"]
+    eq = (
+        f" (calibrated to ≈ {r['station_equivalent_cm']} cm at weather stations)"
+        if r.get("station_equivalent_cm") is not None
+        else ""
+    )
     rows = []
     for c in r["cities"]:
         for d in defs:
@@ -176,8 +188,9 @@ def _html(r: dict, defs: list[str]) -> str:
             for c in r["cities"]
         )
         leg = f"""<h2>Legacy comparison: any_day, 1980–2024, land cells</h2>
-<p>New = daily-mean snow depth ≥ 1 cm on any of Dec 24–26. Legacy = hourly maximum ≥ 1 cm
-(and oceans counted as 0 %). Expect new ≤ legacy.</p>
+<p>Both sides use {r["legacy_threshold_cm"]} cm, whatever the threshold in use: new =
+daily-mean snow depth ≥ {r["legacy_threshold_cm"]} cm on any of Dec 24–26; legacy = hourly
+maximum ≥ {r["legacy_threshold_cm"]} cm (and oceans counted as 0 %). Expect new ≤ legacy.</p>
 <table><tr><th>cells</th><th>n</th><th>Pearson r</th><th>bias (new − legacy, pp)</th>
 <th>mean |diff|</th><th>new ≤ legacy</th><th>mean new</th><th>mean legacy</th></tr>{lr}</table>
 <p>Ocean cells shown as 0 % in the legacy map:
@@ -188,7 +201,8 @@ def _html(r: dict, defs: list[str]) -> str:
 <style>body{{font:14px system-ui;margin:2em;max-width:1100px}}table{{border-collapse:collapse;
 margin:1em 0}}td,th{{border:1px solid #ccc;padding:3px 8px;text-align:right}}
 td:first-child{{text-align:left}}</style></head><body>
-<h1>White Christmas: sanity report</h1><p>Built {r["built"]}. Probabilities in %, change in pp
+<h1>White Christmas: sanity report</h1><p>Built {r["built"]}. <b>Threshold in use:
+daily-mean snow depth ≥ {r["threshold_cm"]} cm</b>{eq}. Probabilities in %, change in pp
 ({w["then"]} → {w["now"]}), trend in pp/decade over {w["full"]} with Mann-Kendall p.</p>
 <table><tr><th>city</th><th>definition</th><th>{w["full"]}</th><th>{w["then"]}</th>
 <th>{w["now"]}</th><th>change</th><th>trend</th><th>p</th></tr>{"".join(rows)}</table>

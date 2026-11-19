@@ -35,6 +35,13 @@ class Window:
         }
 
 
+def _whole_cm(value: Any, name: str) -> int:
+    f = float(value)
+    if not f.is_integer() or f < 0:
+        raise ValueError(f"{name} must be a whole number of centimetres, got {value!r}")
+    return int(f)
+
+
 def make_window(start: int, end: int, kind: str) -> Window:
     return Window(id=f"{start}_{end}", label=f"{start}–{end}", start=start, end=end, kind=kind)
 
@@ -63,8 +70,20 @@ class Config:
         return list(range(self.first_year, self.last_year + 1))
 
     @property
-    def threshold_cm(self) -> float:
-        return float(self.raw.get("threshold_cm", 1))
+    def threshold_cm(self) -> int:
+        """Snow-depth threshold in whole centimetres.
+
+        The cube and the point tiles store floored whole cm, so ``cube >= T`` equals
+        ``source >= T`` only for whole T; a fractional value would silently act as the next
+        whole cm, so it is rejected.
+        """
+        return _whole_cm(self.raw.get("threshold_cm", 1), "threshold_cm")
+
+    @property
+    def station_equivalent_cm(self) -> int | None:
+        """Contract v1.4: station depth that ``threshold_cm`` was calibrated to match."""
+        v = self.raw.get("station_equivalent_cm")
+        return None if v is None else _whole_cm(v, "station_equivalent_cm")
 
     @property
     def download(self) -> dict[str, Any]:
@@ -72,7 +91,14 @@ class Config:
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
-        return self.raw["definitions"]
+        """Definitions with ``{threshold_cm}`` in their texts filled in from the config."""
+        t = self.threshold_cm
+        out = []
+        for d in self.raw["definitions"]:
+            out.append(
+                {k: v.format(threshold_cm=t) if isinstance(v, str) else v for k, v in d.items()}
+            )
+        return out
 
     @property
     def definition_ids(self) -> list[str]:
@@ -138,6 +164,6 @@ class Config:
 
     # -- hashing ------------------------------------------------------------
     def section_hash(self, *keys: str) -> str:
-        sub = {k: self.raw.get(k) for k in keys}
+        sub = {k: self.raw.get(k) for k in keys}  # missing keys hash as None
         blob = json.dumps(sub, sort_keys=True, default=str).encode()
         return hashlib.sha256(blob).hexdigest()[:16]

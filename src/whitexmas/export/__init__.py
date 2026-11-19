@@ -26,14 +26,20 @@ from .colors import COLORMAPS
 
 try:  # the projections package lives on its own branch until the two meet
     from ..projections.export import manifest_fragment
-except ImportError:  # pragma: no cover - depends on which branch is checked out
+except ModuleNotFoundError as e:  # pragma: no cover - depends on which branch is checked out
+    # Only "the projections package is absent" is expected; any other import failure inside it
+    # (a missing optional dependency, a bug) must surface instead of silently dropping it.
+    if e.name not in ("whitexmas.projections", "whitexmas.projections.export"):
+        raise
 
     def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | None:
         return None
 
 
 log = logging.getLogger(__name__)
-EXPORT_VERSION = 1
+# Bump with every commit that changes what export writes, so fingerprints invalidate.
+# 2: unique region keys, admin alt names filtered, threshold texts, station_equivalent_cm.
+EXPORT_VERSION = 2
 SCHEMA_VERSION = 1
 
 ATTRIBUTION = (
@@ -42,12 +48,6 @@ ATTRIBUTION = (
     "of the Copernicus information or data it contains. Places: GeoNames (CC BY 4.0). "
     "Borders: Natural Earth."
 )
-
-WARMING_LEVELS = [
-    {"gwl": 1.5, "label": "+1.5 °C", "approx": "around the 2030s"},
-    {"gwl": 2.0, "label": "+2 °C", "approx": "around the 2050s"},
-    {"gwl": 3.0, "label": "+3 °C", "approx": "around the 2080s (SSP2-4.5 median)"},
-]
 
 
 # --------------------------------------------------------------------------- layers
@@ -116,6 +116,39 @@ def _render_layer(
     )
 
 
+# --------------------------------------------------------------------------- manifest
+def build_manifest(cfg: Config, layers: list[dict], frag: dict | None = None) -> dict:
+    """manifest.json content (contract v1.4) for the given layers and projections fragment."""
+    m: dict = {
+        "schema_version": SCHEMA_VERSION,
+        "data_version": data_version(cfg),
+        "built": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "build_hash": git_hash(),
+        "years": {"first": cfg.first_year, "last": cfg.last_year},
+        "threshold_cm": cfg.threshold_cm,
+    }
+    if cfg.station_equivalent_cm is not None:
+        m["station_equivalent_cm"] = cfg.station_equivalent_cm
+    m.update(
+        {
+            "attribution": ATTRIBUTION.format(year=datetime.now(UTC).year),
+            "definitions": [
+                {k: d[k] for k in ("id", "label", "short", "description", "default") if k in d}
+                for d in cfg.definitions
+            ],
+            "windows": [w.as_dict() for w in cfg.windows()],
+            "layers": [{k: v for k, v in ly.items() if k != "src"} for ly in layers],
+            "colormaps": COLORMAPS,
+            "glacier_style": "hatched",
+            "points": {"index": "points/index.json", "tile_deg": 5, "format": "wx-points-v1"},
+            "projections": frag["projections"] if frag else {"available": False},
+            "places": "places.json",
+            "regions": "regions.json",
+        }
+    )
+    return m
+
+
 # --------------------------------------------------------------------------- helpers
 def git_hash() -> str:
     try:
@@ -140,7 +173,7 @@ def _fingerprint(cfg: Config, ind_fp: str) -> str:
     import hashlib
 
     h = hashlib.sha256(ind_fp.encode())
-    h.update(cfg.section_hash("export").encode())
+    h.update(cfg.section_hash("export", "station_equivalent_cm", "definitions").encode())
     h.update(json.dumps(COLORMAPS, sort_keys=True).encode())
     h.update(f"export{EXPORT_VERSION}".encode())
     return h.hexdigest()[:16]
@@ -306,27 +339,7 @@ def export_all(
 
     # 5 · manifest -------------------------------------------------------------------
     dv = data_version(cfg)
-    manifest = {
-        "schema_version": SCHEMA_VERSION,
-        "data_version": dv,
-        "built": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "build_hash": git_hash(),
-        "years": {"first": cfg.first_year, "last": cfg.last_year},
-        "threshold_cm": cfg.threshold_cm if cfg.threshold_cm % 1 else int(cfg.threshold_cm),
-        "attribution": ATTRIBUTION.format(year=datetime.now(UTC).year),
-        "definitions": [
-            {k: d[k] for k in ("id", "label", "short", "description", "default") if k in d}
-            for d in cfg.definitions
-        ],
-        "windows": [w.as_dict() for w in wins],
-        "layers": [{k: v for k, v in ly.items() if k != "src"} for ly in layers],
-        "colormaps": COLORMAPS,
-        "glacier_style": "hatched",
-        "points": {"index": "points/index.json", "tile_deg": 5, "format": "wx-points-v1"},
-        "projections": frag["projections"] if frag else {"available": False},
-        "places": "places.json",
-        "regions": "regions.json",
-    }
+    manifest = build_manifest(cfg, layers, frag)
     write_json(web_out / "manifest.json", manifest)
     total += (web_out / "manifest.json").stat().st_size
     log.info("web data: %d files, %.1f MB (largest %s)", len(sizes) + 1, total / 1e6,
