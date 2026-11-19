@@ -33,9 +33,9 @@ NO_CHANGE_PP = 0.5
 """A model "agrees on no change" in a cell when its projected probability differs from today's
 ERA5-Land probability by less than this many percentage points (decision S4 (b), 2026-11-19).
 
-The vote is on the model's projected probability, not on its log-odds change: a change too
-small to show (below half a percentage point, i.e. it rounds to today's whole per cent), or one
-that cannot show (a decline from 0 %, a rise from 100 %), is "no change". With the earlier rule
+The vote is on the model's projected probability, not on its log-odds change: a change of
+less than half a percentage point, or one that cannot show (a decline from 0 %, a rise from
+100 %), is "no change". With the earlier rule
 (|delta| < 1e-6) the bilinear regrid mixed exact zeros with tiny non-zero values, so places
 where every model projects today's 0 % were hatched as "models disagree". The same threshold
 applies to every definition, warming level, layer and point tile."""

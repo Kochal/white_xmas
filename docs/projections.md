@@ -203,7 +203,7 @@ The full sensitivity test across all models is part of Phase 2 validation.
    probability `p'` against today's `p`: a decrease (`p' − p ≤ −0.5` pp), an increase
    (`≥ +0.5` pp), or **no change** (`|p' − p| < 0.5` pp, `ensemble.NO_CHANGE_PP`), which counts
    as a direction of its own (contract v1.3 states this for the hatching and the `wx-proj-v1`
-   agreement bit). A change too small to show in whole per cent, or one that cannot show (a
+   agreement bit). A change of less than half a percentage point, or one that cannot show (a
    decline from 0 %, a rise from 100 %), is "no change", so a place where every model projects
    today's value is not flagged. The same threshold applies to every layer, definition and
    warming level (decision S4 (b), 2026-11-19; until then "no change" meant `|Δ| < 10⁻⁶`).
@@ -282,7 +282,7 @@ does not record a real ERA5-Land reference.
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
 Sizes on the real baseline: 14.9 MB for the 6 layers and 1.6 MB of point tiles (data-2025.1;
-the rebuild with the fixed estimator: 15.0 MB and 1.5 MB).
+the rebuild with the fixed estimator: 15.5 MB and 1.5 MB).
 
 Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
 
@@ -355,7 +355,7 @@ observed threshold; only the baseline it is applied to does.
 ### Products
 
 - `tiles/proj__christmas_day__gwl{1.5,2.0,3.0}.pmtiles` and
-  `tiles/projchange__christmas_day__gwl{…}.pmtiles`: 6 layers, 14.9 MB (v2: 15.0 MB), 3144 tiles each (z0–6,
+  `tiles/projchange__christmas_day__gwl{…}.pmtiles`: 6 layers, 14.9 MB (v2: 15.5 MB), 3144 tiles each (z0–6,
   lossless WebP, same renderer and colours as the historical layers), `"threshold": "calibrated"`.
 - `proj/<tx>_<ty>.bin.gz`: 1391 `wx-proj-v1` point tiles, 1.6 MB (v2: 1.5 MB).
 - `manifest_fragment.json` (not a placeholder, `threshold: {"id": "calibrated", "cm": 5}`): 6 layers
@@ -635,9 +635,13 @@ projected probability moves by less than 0.5 pp. Hatched share of land (cos-lati
 | Transition cells (10–90 %, 25–75 °N), hatched | 21.6 / 10.4 / 6.0 % | 28.6 / 15.7 / 9.3 % | **36.8 / 19.1 / 10.1 %** |
 
 The rule removes the hatching where nothing visible changes. The price is in the transition
-cells at +1.5 °C: models whose change is below half a point (often the hot models, which are
-already near +1.5 °C in the baseline years) now vote "no change" instead of "decrease", so more
-of those cells are hatched (37 % instead of 29 %). That is a fair reading of a small,
+cells at +1.5 °C: models whose change is below half a point (mostly CanESM5, IPSL-CM6A-LR and
+EC-Earth3(-Veg), not UKESM1 or CESM2: share of transition cells voting "no change" at +1.5 °C,
+CanESM5 21 %, IPSL-CM6A-LR 16 %, EC-Earth3-Veg 15 %, MIROC-ES2L 12 %, EC-Earth3 10 %, UKESM1 and
+CESM2 5 %, measured in the follow-up review) now vote "no change" instead of "decrease", so more
+of those cells are hatched (37 % instead of 29 %). Those cells already had about a third of the
+models projecting more snow (on average 10.3 down, 2.5 no change, 6.1 up), so the hatching marks
+real disagreement. That is a fair reading of a small,
 model-dependent signal. The projected probabilities themselves (p10, p50, p90) do not change.
 
 | Place | Today | +1.5 °C (data-2025.1 → fixed) | +2 °C | +3 °C |
@@ -696,9 +700,14 @@ Output:
 Commands in PowerShell syntax (this machine); in a POSIX shell write
 `WHITEXMAS_PROJ_VARIANT=v2 uv run …`.
 
+0. **Reference for data-2025.1:** `products/release/whitexmas-web-data-2025.1.tar.gz`
+   (193,651,133 bytes, sha256 `1f8b6cd6fe1f862e79c75fbb74d8ee21bebc7b1592db871bbc27c239f4947485`,
+   identical to the GitHub release asset). `products/whitexmas-web-data-2025.1.tar.gz`
+   (177,475,597 bytes, 10:37) is an earlier local build from before the projection export, not
+   the published bundle. Name the reference file in the release notes ("Previous release:
+   data-2025.1, `whitexmas-web-data-2025.1.tar.gz`, sha256 1f8b6cd6…7485").
 1. Set `export.build_counter: 2` in `config/pipeline.yaml` (unset means 1). `data_version`
-   becomes `2025.2`, and the bundle name does not collide with
-   `whitexmas-web-data-2025.1.tar.gz`. **Commit this change before building**: the manifest's
+   becomes `2025.2`, and the bundle name does not collide with either 2025.1 file. **Commit this change before building**: the manifest's
    `build_hash` is the commit plus `-dirty` when `src/` or `config/` has uncommitted changes.
 2. If you want to keep the 2025.1 historical COGs, copy `products/cog/` aside first.
    `build_counter` is part of the `export` section hash, so the export fingerprint changes, and

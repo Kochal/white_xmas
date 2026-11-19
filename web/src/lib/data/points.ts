@@ -165,7 +165,10 @@ export interface ProjectedProbability {
 	p10: number;
 	median: number;
 	p90: number;
-	/** At least two thirds of the models agree on the sign of the change. */
+	/**
+	 * At least two thirds of the models agree on the direction
+	 * (decrease, increase, or no change within 0.5 pp).
+	 */
 	agree: boolean;
 }
 
