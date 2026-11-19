@@ -1,8 +1,11 @@
 import { expect, test } from '@playwright/test';
 
+/** E2E_REAL=1: running against real pipeline output (static/data), not the fixtures. */
+const REAL = !!process.env.E2E_REAL;
+
 test('map loads, search "Munich" opens the panel with a year strip', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByText('Fixture data')).toBeVisible();
+	if (!REAL) await expect(page.getByText('Fixture data')).toBeVisible();
 	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
 
 	const search = page.getByRole('combobox', { name: 'Search for a place' });
@@ -108,7 +111,10 @@ test('Future: change vs today keeps the warming level and explains the hatching'
 	await expect(page.getByRole('radio', { name: 'Future' })).toBeChecked();
 	// the select shows the short label; the derived "approx" text sits beside it (contract v1.3)
 	await expect(page.getByLabel('Warming')).toHaveValue('3');
-	await expect(page.getByTestId('level-note')).toContainText('not reached under SSP2-4.5');
+	// approx is derived by the pipeline (fixtures use a "not reached" example)
+	await expect(page.getByTestId('level-note')).toContainText(
+		REAL ? /\+3 °C\s+global\s+warming:\s+\S+/ : 'not reached under SSP2-4.5'
+	);
 
 	await page.getByRole('radio', { name: 'Change vs today' }).check();
 	await expect(page).toHaveURL(/layer=projection_change/);
@@ -190,7 +196,14 @@ test('threshold switch: calibrated by default, raw ERA5-Land on demand (contract
 
 	// raw maps exist for Snow on Christmas Day only: another definition falls back to calibrated
 	await page.locator('#layer-controls').getByLabel('Definition').selectOption('all_three_days');
-	await expect(page).toHaveURL(/th=calibrated/);
-	await expect(page.getByRole('radio', { name: 'Raw ERA5-Land (1 cm)' })).toBeDisabled();
-	await expect(page.getByTestId('raw-note')).toBeVisible();
+	if (REAL) {
+		// the real export has raw maps for every definition: raw stays selected
+		await expect(page).toHaveURL(/th=raw/);
+		await expect(page.getByTestId('raw-note')).toHaveCount(0);
+	} else {
+		// fixtures have raw maps for Snow on Christmas Day only: falls back to calibrated
+		await expect(page).toHaveURL(/th=calibrated/);
+		await expect(page.getByRole('radio', { name: 'Raw ERA5-Land (1 cm)' })).toBeDisabled();
+		await expect(page.getByTestId('raw-note')).toBeVisible();
+	}
 });
