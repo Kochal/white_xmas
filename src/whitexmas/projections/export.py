@@ -35,6 +35,7 @@ from pathlib import Path
 import numpy as np
 
 from ..paths import DataPaths
+from .cmip6 import load_plan
 from .settings import ProjPaths
 
 log = logging.getLogger(__name__)
@@ -44,11 +45,34 @@ HEADER = struct.Struct("<4sBBHH6x")
 CELLS = 50
 NODATA = 255
 
-WARMING_LEVELS = {
-    1.5: {"gwl": 1.5, "label": "+1.5 °C", "approx": "around the 2030s"},
-    2.0: {"gwl": 2.0, "label": "+2 °C", "approx": "around the 2050s"},
-    3.0: {"gwl": 3.0, "label": "+3 °C", "approx": "around the 2080s (SSP2-4.5 median)"},
-}
+LABELS = {1.5: "+1.5 °C", 2.0: "+2 °C", 3.0: "+3 °C"}
+NOT_REACHED = "late this century or later; most models reach it only under SSP5-8.5"
+
+
+def approx_label(windows: list[dict | None]) -> str:
+    """When a warming level is reached under SSP2-4.5 (plan D-10, contract v1.3).
+
+    ``windows`` holds, per model used, its window for the level (``{"experiment", "start",
+    "end"}``) or None. The label is the decade of the median SSP2-4.5 window centre; when
+    fewer than half of the models reach the level under SSP2-4.5, it says so instead.
+    """
+    centres = [
+        (w["start"] + w["end"]) / 2 for w in windows if w and w.get("experiment") == "ssp245"
+    ]
+    if not windows or len(centres) < len(windows) / 2:
+        return NOT_REACHED
+    decade = int(np.floor(np.median(centres) / 10.0) * 10)
+    return f"around the {decade}s"
+
+
+def warming_levels(models: list[str], gwls: list[float], plan_models: dict) -> list[dict]:
+    """``manifest.projections.warming_levels`` derived from the models actually used."""
+    out = []
+    for g in gwls:
+        wins = [plan_models.get(m, {}).get("windows", {}).get(str(float(g))) for m in models]
+        out.append({"gwl": float(g), "label": LABELS.get(float(g), f"+{g:g} °C"),
+                    "approx": approx_label(wins)})  # fmt: skip
+    return out
 
 
 def gwl_id(g: float) -> str:
@@ -157,10 +181,10 @@ def plan_layers(definitions: list[str], gwls: list[float], maxzoom: int = 6) -> 
     return layers
 
 
-def projections_block(models: list[str], gwls: list[float], baseline_window: str) -> dict:
+def projections_block(models: list[str], levels: list[dict], baseline_window: str) -> dict:
     return {
         "available": True,
-        "warming_levels": [WARMING_LEVELS[float(g)] for g in gwls],
+        "warming_levels": levels,
         "baseline_window": baseline_window,
         "points": {"tile_deg": 5, "format": "wx-proj-v1", "path": "proj/{tx}_{ty}.bin.gz"},
         "models": models,
@@ -313,7 +337,11 @@ def export_projections(
     frag = {
         "placeholder": placeholder,
         "layers": plan_layers(defs, gwls, maxzoom),
-        "projections": projections_block(models, gwls, settings.get("obs_window", "1996_2025")),
+        "projections": projections_block(
+            models,
+            warming_levels(models, gwls, load_plan(pp.cmip6)["models"]),
+            settings.get("obs_window", "1996_2025"),
+        ),
     }
     pp.products.mkdir(parents=True, exist_ok=True)
     # a placeholder preview never replaces a real fragment

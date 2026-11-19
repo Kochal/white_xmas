@@ -72,7 +72,8 @@ def test_layer_ids_and_block_follow_the_contract(tmp_path):
     chg = next(ly for ly in layers if ly["id"] == "projchange__christmas_day__gwl2.0")
     assert chg["kind"] == "projection_change" and chg["colormap"] == "change"
     assert chg["hatch_disagreement"] is True and "from" not in chg
-    block = projections_block(["A", "B"], [1.5, 2.0, 3.0], "1996_2025")
+    levels = [{"gwl": g, "label": f"+{g} °C", "approx": "x"} for g in (1.5, 2.0, 3.0)]
+    block = projections_block(["A", "B"], levels, "1996_2025")
     assert block["available"] is True
     assert [w["gwl"] for w in block["warming_levels"]] == [1.5, 2.0, 3.0]
     assert block["points"] == {
@@ -140,3 +141,25 @@ def test_manifest_fragment_is_none_unless_a_real_export_exists(tmp_path):
     assert manifest_fragment(paths) is None
     (prod / "manifest_fragment.json").write_text(json.dumps({**frag, "placeholder": False}))
     assert manifest_fragment(paths) == frag
+
+
+def test_warming_level_labels_come_from_the_models_used():
+    from whitexmas.projections.export import NOT_REACHED, approx_label, warming_levels
+
+    w = lambda exp, a: {"experiment": exp, "start": a, "end": a + 19}  # noqa: E731
+    # centres 2029.5, 2035.5, 2045.5 -> median 2035.5 -> 2030s
+    assert approx_label([w("ssp245", 2020), w("ssp245", 2026), w("ssp245", 2036)]) == (
+        "around the 2030s"
+    )
+    # 1 of 3 models reaches it under SSP2-4.5: honest wording, no decade
+    assert approx_label([w("ssp245", 2070), w("ssp585", 2050), w("ssp585", 2060)]) == NOT_REACHED
+    assert approx_label([w("ssp245", 2060), w("ssp245", 2070), None, w("ssp585", 2050)]) == (
+        "around the 2070s"
+    )
+    plan = {
+        "A": {"windows": {"2.0": w("ssp245", 2036)}},
+        "B": {"windows": {"2.0": w("ssp245", 2030)}},
+        "C": {"windows": {}},
+    }
+    lv = warming_levels(["A", "B"], [2.0], plan)
+    assert lv == [{"gwl": 2.0, "label": "+2 °C", "approx": "around the 2040s"}]

@@ -333,8 +333,12 @@ sampling noise.
   every model's change; the model spread partly reflects that noise, not only model differences.
   Day pooling reduces it but cannot remove it.
 - **One scenario path labels the decades.** The projection is for a warming level, not a date.
-  "+2 °C (around the 2050s)" uses the SSP2-4.5 median; with faster or slower emission cuts the
-  same warming level comes earlier or later.
+  The label is derived from the models actually used: the decade of the median centre of their
+  SSP2-4.5 warming-level windows ("+1.5 °C around the 2030s", "+2 °C around the 2040s" with
+  the current 19 models). Only 7 of the 19 reach +3 °C under SSP2-4.5 by 2100, so +3 °C is
+  labelled "late this century or later; most models reach it only under SSP5-8.5" (the rule:
+  fewer than half the models reach the level under SSP2-4.5). With faster or slower emission
+  cuts the same warming level comes earlier or later.
 - **Baseline offset.** Models use 1995–2014 (about +0.85 °C) as their baseline, ERA5-Land uses
   1996–2025 (about +1.0 °C). The projected change is therefore slightly too large, by roughly
   the change between those two periods (~0.15 °C of global warming). Hot models reach +1.5 °C
