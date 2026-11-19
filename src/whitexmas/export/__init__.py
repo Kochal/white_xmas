@@ -163,6 +163,7 @@ def export_all(
     workers: int | None = None,
     cogs: bool = True,
     bundle: bool = True,
+    max_layers: int | None = None,
 ) -> dict:
     import zarr
 
@@ -201,6 +202,10 @@ def export_all(
         if not (tiles_dir / f"{ly['id']}.pmtiles").exists()
         or state["layers"].get(ly["id"]) != fp
     ]  # fmt: skip
+    remaining = 0
+    if max_layers is not None and len(todo) > max_layers:
+        remaining = len(todo) - max_layers
+        todo = todo[:max_layers]
     n_workers = workers or max(1, min(len(todo), (os.cpu_count() or 2) - 2, 8))
     log.info("export: %d layers (%d to render, %d workers)", len(layers), len(todo), n_workers)
     if todo:
@@ -219,6 +224,10 @@ def export_all(
                 state_path.write_text(json.dumps(state, indent=1))
                 log.info("tiles %s: %d tiles, %.1f MB", ly["id"], stats["tiles"],
                          stats["bytes"] / 1e6)  # fmt: skip
+
+    if remaining:
+        log.info("export paused: %d layers still to render; run export again to resume", remaining)
+        return {"remaining_layers": remaining}
 
     # 2 · point tiles ---------------------------------------------------------------
     from .points import write_point_tiles
