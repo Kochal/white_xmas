@@ -68,10 +68,9 @@ for (const [tx, ty] of TILES) {
 // --- derivations (deliberately simple; the site has its own, tested implementation)
 const DEFINITIONS = {
 	christmas_day: (d) => (d[1] === NODATA ? null : d[1] >= THRESHOLD),
-	all_three_days: (d) =>
-		d.some((v) => v !== NODATA && v < THRESHOLD) ? false : d.includes(NODATA) ? null : true,
-	any_day: (d) =>
-		d.some((v) => v !== NODATA && v >= THRESHOLD) ? true : d.includes(NODATA) ? null : false
+	// as the pipeline: unknown when any needed day is missing
+	all_three_days: (d) => (d.includes(NODATA) ? null : d.every((v) => v >= THRESHOLD)),
+	any_day: (d) => (d.includes(NODATA) ? null : d.some((v) => v >= THRESHOLD))
 };
 
 function whiteSeries(key, k, def) {
@@ -93,7 +92,28 @@ function probability(series, start, end) {
 		n++;
 		if (s) w++;
 	}
-	return n === 0 ? NaN : (100 * w) / n;
+	// as the pipeline: at least 80 % of the window's years must have data
+	return n === 0 || n < Math.ceil(0.8 * (end - start + 1)) ? NaN : (100 * w) / n;
+}
+
+/** Two-sided Mann–Kendall p for 0/1 data, ties corrected (the pipeline's test). */
+function mannKendallP(ys) {
+	const n = ys.length;
+	let s = 0;
+	for (let i = 0; i < n - 1; i++) for (let j = i + 1; j < n; j++) s += Math.sign(ys[j] - ys[i]);
+	const ones = ys.filter((v) => v > 0).length;
+	const zeros = n - ones;
+	const tie = (t) => t * (t - 1) * (2 * t + 5);
+	const v = (n * (n - 1) * (2 * n + 5) - tie(zeros) - tie(ones)) / 18;
+	if (v <= 0) return 1;
+	const z = Math.abs(s > 0 ? (s - 1) / Math.sqrt(v) : s < 0 ? (s + 1) / Math.sqrt(v) : 0);
+	const x = z / Math.SQRT2;
+	const t = 1 / (1 + 0.3275911 * x);
+	return (
+		t *
+		(0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)))) *
+		Math.exp(-x * x)
+	);
 }
 
 function trend(series) {
@@ -115,11 +135,7 @@ function trend(series) {
 		sxy += (xs[t] - mx) * (ys[t] - my);
 	}
 	const slope = sxy / sxx;
-	let sse = 0;
-	for (let t = 0; t < n; t++) sse += (ys[t] - my - slope * (xs[t] - mx)) ** 2;
-	const se = Math.sqrt(sse / (n - 2) / sxx);
-	const z = se > 0 ? Math.abs(slope / se) : 0;
-	return { perDecade: slope * 10, significant: z > 1.645 };
+	return { perDecade: slope * 10, significant: mannKendallP(ys.map((y) => y / 100)) < 0.1 };
 }
 
 const isOcean = (key, k) => {

@@ -11,24 +11,24 @@ import { cellHistory, decodePointTile } from './points';
 
 const N = null;
 
-describe('isWhite: the three definitions with three-valued logic', () => {
+describe('isWhite: the three definitions, unknown when a needed day is missing (as the pipeline)', () => {
 	it('christmas_day looks at Dec 25 only', () => {
 		expect(isWhite([0, 1, 0], 'christmas_day', 1)).toBe(true);
 		expect(isWhite([5, 0, 5], 'christmas_day', 1)).toBe(false);
 		expect(isWhite([5, N, 5], 'christmas_day', 1)).toBe(null);
 	});
 
-	it('all_three_days needs every day; one known green day settles it', () => {
+	it('all_three_days needs every day', () => {
 		expect(isWhite([1, 2, 3], 'all_three_days', 1)).toBe(true);
 		expect(isWhite([1, 0, 3], 'all_three_days', 1)).toBe(false);
-		expect(isWhite([N, 0, 3], 'all_three_days', 1)).toBe(false);
+		expect(isWhite([N, 0, 3], 'all_three_days', 1)).toBe(null);
 		expect(isWhite([N, 4, 3], 'all_three_days', 1)).toBe(null);
 	});
 
-	it('any_day needs one day; one known white day settles it', () => {
+	it('any_day needs one of the days, and all three to be known', () => {
 		expect(isWhite([0, 0, 1], 'any_day', 1)).toBe(true);
 		expect(isWhite([0, 0, 0], 'any_day', 1)).toBe(false);
-		expect(isWhite([N, N, 2], 'any_day', 1)).toBe(true);
+		expect(isWhite([N, N, 2], 'any_day', 1)).toBe(null);
 		expect(isWhite([N, 0, 0], 'any_day', 1)).toBe(null);
 	});
 
@@ -108,6 +108,16 @@ describe('probability', () => {
 		expect(empty.p).toBeNull();
 		expect(empty.meanDepthWhite).toBeNull();
 	});
+
+	it('needs at least 80 % valid years in the window, like the map', () => {
+		// 1950–1959 has 9 of 10 valid years (90 %): shown
+		expect(probability(strip, 1950, 1959).p).not.toBeNull();
+		// 1954–1957 has 3 of 4 valid years (75 %): not enough, but the counts stay
+		const thin = probability(strip, 1954, 1957);
+		expect(thin.p).toBeNull();
+		expect(thin.nValid).toBe(3);
+		expect(thin.nWhite).toBe(1);
+	});
 });
 
 describe('decadeProbabilities', () => {
@@ -137,7 +147,7 @@ describe('olsTrend', () => {
 		const t = olsTrend(strip, 2000, 2009)!;
 		expect(t.n).toBe(10);
 		expect(t.perDecade).toBeCloseTo(151.515, 2);
-		expect(t.pValue).toBeLessThan(0.01);
+		expect(t.pValue).toBeLessThan(0.05);
 		expect(t.low90).toBeLessThan(t.perDecade);
 		expect(t.high90).toBeGreaterThan(t.perDecade);
 	});
@@ -160,23 +170,44 @@ describe('olsTrend', () => {
 		expect(t.pValue).toBeCloseTo(1, 6);
 	});
 
-	it('matches a hand-computed t statistic', () => {
-		// x = 0…4, y = 0 0 100 0 100 → slope 20/yr, intercept 0, residuals 0 -20 60 -60 20
-		// SSE = 8000, s² = 8000/3, se = sqrt(s²/10) = 16.33, t = 1.2247, two-sided p (df 3) = 1 − (2/π)(atan(t/√3) + (t/√3)/(1 + t²/3)) = 0.3081
+	it('takes the slope from OLS and the p-value from Mann–Kendall with ties correction', () => {
+		// x = 0…4, y = 0 0 100 0 100 → OLS slope 20 pp/yr.
+		// Mann–Kendall: S = 4; ties: 3 green, 2 white → var = (5·4·15 − (3·2·11 + 2·1·9)) / 18 = 12;
+		// z = (S − 1)/√12 = 0.8660; p = erfc(z/√2) = 0.38648
 		const states: YearState[] = ['green', 'green', 'white', 'green', 'white'];
 		const strip = states.map((state, k) => ({ year: 2000 + k, state, depth: null, capped: false }));
 		const t = olsTrend(strip, 2000, 2004)!;
 		expect(t.perDecade).toBeCloseTo(200, 9);
-		expect(t.pValue).toBeCloseTo(0.3081, 3);
+		expect(t.pValue).toBeCloseTo(0.38648, 4);
 	});
 
-	it('skips nodata years and needs at least three valid years', () => {
+	it('gives the textbook Mann–Kendall p for a step series', () => {
+		// 5 green then 5 white: S = 25, var = 91.667, z = 2.5067, p = 0.012186
+		const strip = Array.from({ length: 10 }, (_, k) => ({
+			year: 2000 + k,
+			state: (k >= 5 ? 'white' : 'green') as YearState,
+			depth: null,
+			capped: false
+		}));
+		expect(olsTrend(strip, 2000, 2009)!.pValue).toBeCloseTo(0.012186, 5);
+	});
+
+	it('gives no trend with fewer than 80 % valid years in the window', () => {
+		const strip = Array.from({ length: 10 }, (_, k) => ({
+			year: 2000 + k,
+			state: (k < 3 ? 'nodata' : k % 2 ? 'white' : 'green') as YearState,
+			depth: null,
+			capped: false
+		}));
+		expect(olsTrend(strip, 2000, 2009)).toBeNull();
+	});
+
+	it('needs at least three valid years', () => {
 		const strip = [
 			{ year: 2000, state: 'white' as YearState, depth: 1, capped: false },
-			{ year: 2001, state: 'nodata' as YearState, depth: null, capped: false },
-			{ year: 2002, state: 'green' as YearState, depth: 0, capped: false }
+			{ year: 2001, state: 'green' as YearState, depth: 0, capped: false }
 		];
-		expect(olsTrend(strip, 2000, 2002)).toBeNull();
+		expect(olsTrend(strip, 2000, 2001)).toBeNull();
 	});
 
 	it('returns a zero-variance fit (all white) as slope 0 with no uncertainty claim', () => {

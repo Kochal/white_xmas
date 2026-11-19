@@ -120,10 +120,18 @@
 		{:else if lookup && history && head}
 			<section class="headline" aria-live="polite">
 				<p class="big" data-testid="headline">{formatPct(head.p)}</p>
-				<p>
-					<strong>{definition.label}</strong> in {inTenYears(head.p)}
-					<span class="muted">({head.nWhite} of {head.nValid} years, {headWin?.label})</span>
-				</p>
+				{#if head.p !== null}
+					<p>
+						<strong>{definition.label}</strong> in {inTenYears(head.p)}
+						<span class="muted">({head.nWhite} of {head.nValid} years, {headWin?.label})</span>
+					</p>
+				{:else}
+					<p>
+						Not enough years with data in {headWin?.label} ({head.nValid} of {headWin
+							? headWin.end - headWin.start + 1
+							: '?'}); a value needs at least 80% of the years.
+					</p>
+				{/if}
 			</section>
 
 			<label class="def">
@@ -195,8 +203,9 @@
 						</p>
 					{/if}
 					<p class="muted small">
-						A straight line through {trend.n} yes/no years is a rough summary. Luck from year to year
-						is large, so read it as a direction, not a forecast.
+						The slope and its range come from a straight line through {trend.n} yes/no years, a rough
+						summary; whether the trend is clear comes from a Mann–Kendall test (p &lt; 0.1), as on the
+						map. Luck from year to year is large, so read it as a direction, not a forecast.
 					</p>
 				</section>
 			{/if}

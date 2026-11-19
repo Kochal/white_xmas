@@ -5,35 +5,38 @@
  */
 import type { DefinitionId, Window } from './manifest';
 import type { CellHistory } from './points';
-import { tQuantile, tTwoSidedP } from './stats';
+import { tQuantile } from './stats';
 
 /**
- * Is this year white? Three-valued: `null` when missing days leave it undecided.
- * `days` are the depths (cm) on Dec 24, 25 and 26, `null` for nodata.
- * A stored 254 means "at least 254 cm", which is above any sensible threshold.
+ * Is this year white? `days` are the depths (cm) on Dec 24, 25 and 26, `null` for nodata.
+ * As in the pipeline (`definitions.py`), a year is unknown (`null`) when any day the
+ * definition needs is missing. A stored 254 means "at least 254 cm".
  */
 export function isWhite(
 	days: (number | null)[],
 	definition: DefinitionId,
 	thresholdCm: number
 ): boolean | null {
-	const snowy = (d: number | null) => (d === null ? null : d >= thresholdCm);
 	switch (definition) {
 		case 'christmas_day':
-			return snowy(days[1]);
-		case 'all_three_days': {
-			const s = days.map(snowy);
-			if (s.includes(false)) return false;
-			return s.includes(null) ? null : true;
-		}
+			return days[1] === null ? null : days[1] >= thresholdCm;
+		case 'all_three_days':
 		case 'any_day': {
-			const s = days.map(snowy);
-			if (s.includes(true)) return true;
-			return s.includes(null) ? null : false;
+			if (days.some((d) => d === null)) return null;
+			const snowy = (days as number[]).map((d) => d >= thresholdCm);
+			return definition === 'all_three_days' ? snowy.every(Boolean) : snowy.some(Boolean);
 		}
 		default:
 			throw new Error(`unknown definition "${definition}"`);
 	}
+}
+
+/** Share of a window's years that must have data before a value is shown (pipeline: 0.8). */
+export const MIN_VALID_FRACTION = 0.8;
+
+/** Fewest valid years a window needs, as the pipeline's `min_valid_years`. */
+export function minValidYears(start: number, end: number, fraction = MIN_VALID_FRACTION): number {
+	return Math.ceil(fraction * (end - start + 1));
 }
 
 export type YearState = 'white' | 'green' | 'nodata';
@@ -75,7 +78,10 @@ export function yearStrip(
 }
 
 export interface WindowProbability {
-	/** Share of white years among years with data, in %; null without valid years. */
+	/**
+	 * Share of white years among years with data, in %; null when fewer than 80 % of the
+	 * window's years have data (the map leaves those cells uncoloured too).
+	 */
 	p: number | null;
 	nValid: number;
 	nWhite: number;
@@ -99,8 +105,9 @@ export function probability(strip: YearCell[], start: number, end: number): Wind
 			}
 		}
 	}
+	const enough = nValid > 0 && nValid >= minValidYears(start, end);
 	return {
-		p: nValid ? (100 * nWhite) / nValid : null,
+		p: enough ? (100 * nWhite) / nValid : null,
 		nValid,
 		nWhite,
 		meanDepthWhite: depthN ? depthSum / depthN : null
@@ -125,19 +132,50 @@ export interface Trend {
 	/** Rough 90 % confidence range of the slope (t distribution), pp per decade. */
 	low90: number;
 	high90: number;
-	/** Two-sided p-value of the slope (OLS t test; ignores autocorrelation). */
+	/**
+	 * Two-sided Mann–Kendall p-value with ties correction, the test the pipeline uses for
+	 * the trend map's hatching and places.json (`indicators.mann_kendall_p`).
+	 */
 	pValue: number;
 	n: number;
 }
 
+/** Standard normal upper tail ×2: erfc(|z|/√2) (Abramowitz & Stegun 7.1.26, error < 1.5e-7). */
+function twoSidedNormalP(z: number): number {
+	const x = Math.abs(z) / Math.SQRT2;
+	const t = 1 / (1 + 0.3275911 * x);
+	const poly =
+		t *
+		(0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))));
+	return poly * Math.exp(-x * x);
+}
+
+/** Two-sided Mann–Kendall p for a 0/1 series in year order, ties corrected (as the pipeline). */
+export function mannKendallP(values: number[]): number | null {
+	const n = values.length;
+	if (n < 3) return null;
+	let s = 0;
+	for (let i = 0; i < n - 1; i++)
+		for (let j = i + 1; j < n; j++) s += Math.sign(values[j] - values[i]);
+	const ones = values.filter((v) => v > 0).length;
+	const zeros = n - ones;
+	const tie = (t: number) => t * (t - 1) * (2 * t + 5);
+	const variance = (n * (n - 1) * (2 * n + 5) - tie(zeros) - tie(ones)) / 18;
+	if (variance <= 0) return 1;
+	const z = s > 0 ? (s - 1) / Math.sqrt(variance) : s < 0 ? (s + 1) / Math.sqrt(variance) : 0;
+	return Math.min(1, twoSidedNormalP(z));
+}
+
 /**
- * Ordinary least squares trend of white (100) / green (0) years over a window. The OLS
- * standard error on 0/1 data is only a rough guide, which the panel says plainly.
+ * Trend of white (100) / green (0) years over a window: the slope and its rough 90 % range
+ * from ordinary least squares, the significance from Mann–Kendall (as on the map). Null
+ * with fewer than three valid years or fewer than 80 % of the window's years.
  */
 export function olsTrend(strip: YearCell[], start: number, end: number): Trend | null {
 	const pts = strip.filter((c) => c.year >= start && c.year <= end && c.state !== 'nodata');
 	const n = pts.length;
-	if (n < 3) return null;
+	if (n < 3 || n < minValidYears(start, end)) return null;
+	const mkP = mannKendallP(pts.map((c) => (c.state === 'white' ? 1 : 0))) ?? 1;
 	const mx = pts.reduce((a, c) => a + c.year, 0) / n;
 	const my = pts.reduce((a, c) => a + (c.state === 'white' ? 100 : 0), 0) / n;
 	let sxx = 0;
@@ -161,7 +199,7 @@ export function olsTrend(strip: YearCell[], start: number, end: number): Trend |
 			perDecade: slope * 10,
 			low90: slope * 10,
 			high90: slope * 10,
-			pValue: slope === 0 ? 1 : 0,
+			pValue: mkP,
 			n
 		};
 	}
@@ -170,7 +208,7 @@ export function olsTrend(strip: YearCell[], start: number, end: number): Trend |
 		perDecade: slope * 10,
 		low90: slope * 10 - half,
 		high90: slope * 10 + half,
-		pValue: tTwoSidedP(slope / se, df),
+		pValue: mkP,
 		n
 	};
 }
