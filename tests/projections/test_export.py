@@ -122,25 +122,107 @@ def test_placeholder_export_is_refused_and_never_written_to_the_bundled_folder(t
     with pytest.raises(RuntimeError, match="PLACEHOLDER"):
         export_projections(paths, tmp_path / "preview", cogs=False)
     bundled = tmp_path / "repo" / "web" / "static" / "data"
-    with pytest.raises(RuntimeError, match="bundled"):
+    with pytest.raises(RuntimeError, match="published bundle"):
         export_projections(paths, bundled, cogs=False, allow_placeholder=True)
     assert not bundled.exists()
-
-
-def test_manifest_fragment_is_none_unless_a_real_export_exists(tmp_path):
-    from whitexmas.paths import DataPaths
-    from whitexmas.projections.export import manifest_fragment
     from whitexmas.projections.settings import ProjPaths
 
-    paths = DataPaths(tmp_path)
-    assert manifest_fragment(paths) is None
-    prod = ProjPaths(tmp_path).products
-    prod.mkdir(parents=True)
-    frag = {"layers": [{"id": "proj__christmas_day__gwl2.0"}], "projections": {"available": True}}
-    (prod / "manifest_fragment.json").write_text(json.dumps({**frag, "placeholder": True}))
-    assert manifest_fragment(paths) is None
-    (prod / "manifest_fragment.json").write_text(json.dumps({**frag, "placeholder": False}))
-    assert manifest_fragment(paths) == frag
+    for target in (None, ProjPaths(tmp_path).staging):  # the staging folder feeds the bundle
+        with pytest.raises(RuntimeError, match="published bundle"):
+            export_projections(paths, target, cogs=False, allow_placeholder=True)
+
+
+def _staged(tmp_path, placeholder=False, n_tiles=2):
+    """A fragment plus its staged files, as a real export leaves them."""
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.settings import ProjPaths
+
+    pp = ProjPaths(tmp_path)
+    layers = plan_layers(["christmas_day"], [2.0])
+    (pp.staging / "tiles").mkdir(parents=True)
+    (pp.staging / "proj").mkdir(parents=True)
+    for ly in layers:
+        (pp.staging / ly["url"]).write_bytes(ly["id"].encode() * 100)
+    names = [f"{i}_7" for i in range(n_tiles)]
+    for n in names:
+        (pp.staging / "proj" / f"{n}.bin.gz").write_bytes(n.encode() * 50)
+    (pp.staging / "proj" / "index.json").write_text(
+        json.dumps({"format": "wx-proj-v1", "tile_deg": 5, "tiles": names}), encoding="utf-8"
+    )
+    frag = {"placeholder": placeholder, "layers": layers, "projections": {"available": True}}
+    (pp.products / "manifest_fragment.json").write_text(json.dumps(frag), encoding="utf-8")
+    return DataPaths(tmp_path), pp, layers, names
+
+
+def test_manifest_fragment_is_none_without_a_real_export(tmp_path):
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.export import manifest_fragment
+
+    assert manifest_fragment(DataPaths(tmp_path), tmp_path / "web") is None
+
+
+def test_fragment_stages_its_files_into_an_empty_web_out(tmp_path):
+    from whitexmas.projections.export import manifest_fragment
+
+    paths, pp, layers, names = _staged(tmp_path)
+    web = tmp_path / "web"
+    frag = manifest_fragment(paths, web)
+    assert frag is not None and [ly["id"] for ly in frag["layers"]] == [ly["id"] for ly in layers]
+    assert "placeholder" not in frag
+    for ly in layers:
+        assert (web / ly["url"]).read_bytes() == (pp.staging / ly["url"]).read_bytes()
+    assert (web / "proj" / "index.json").is_file()
+    assert sorted(p.name for p in (web / "proj").glob("*.bin.gz")) == [f"{n}.bin.gz" for n in names]
+
+
+def test_fragment_staging_is_idempotent_and_replaces_stale_files(tmp_path):
+    import os
+
+    from whitexmas.projections.export import manifest_fragment
+
+    paths, pp, layers, names = _staged(tmp_path)
+    web = tmp_path / "web"
+    assert manifest_fragment(paths, web) is not None
+    tile = web / layers[0]["url"]
+    os.utime(tile, (1_000_000_000, 1_000_000_000))  # identical files are not copied again
+    (web / "proj" / "99_99.bin.gz").write_bytes(b"old tile from an earlier build")
+    (web / layers[1]["url"]).write_bytes(b"older build")  # differs -> replaced
+    assert manifest_fragment(paths, web) is not None
+    assert tile.stat().st_mtime == 1_000_000_000
+    assert (web / layers[1]["url"]).read_bytes() == (pp.staging / layers[1]["url"]).read_bytes()
+    assert not (web / "proj" / "99_99.bin.gz").exists()
+
+
+def test_missing_staged_files_give_none_and_copy_nothing(tmp_path):
+    from whitexmas.projections.export import manifest_fragment
+
+    paths, pp, layers, names = _staged(tmp_path)
+    (pp.staging / "proj" / f"{names[1]}.bin.gz").unlink()
+    web = tmp_path / "web"
+    assert manifest_fragment(paths, web) is None
+    assert not web.exists()
+    paths, pp, layers, names = _staged(tmp_path / "b")
+    (pp.staging / layers[0]["url"]).unlink()
+    assert manifest_fragment(paths, tmp_path / "web_b") is None
+
+
+def test_placeholder_fragment_is_never_staged(tmp_path):
+    from whitexmas.projections.export import manifest_fragment
+
+    paths, *_ = _staged(tmp_path, placeholder=True)
+    web = tmp_path / "web"
+    assert manifest_fragment(paths, web) is None
+    assert not web.exists()
+
+
+def test_fragment_without_web_out_keeps_the_old_behaviour_with_a_warning(tmp_path, caplog):
+    from whitexmas.projections.export import manifest_fragment
+
+    paths, pp, layers, _ = _staged(tmp_path)
+    with caplog.at_level("WARNING"):
+        frag = manifest_fragment(paths)
+    assert frag is not None and len(frag["layers"]) == len(layers)
+    assert "without web_out" in caplog.text
 
 
 def test_warming_level_labels_come_from_the_models_used():

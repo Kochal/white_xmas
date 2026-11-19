@@ -90,10 +90,12 @@ def build_ensemble(
     files = sorted(pp.models.glob("*.nc"))
     if models:
         files = [f for f in files if f.stem in models]
-    from .validation import dropped_models
+    from .validation import dropped_models, selection_mismatch
 
     # manual exclusions add to the automatic selection, never replace it
     exclude = set(s.exclude) | set(dropped_models(pp.validation))
+    for diff in selection_mismatch(pp.validation, s):
+        log.warning("model selection was made with other settings (%s); re-run validate", diff)
     if exclude:
         log.info("excluding models: %s", ", ".join(sorted(exclude)))
     files = [f for f in files if f.stem not in exclude]

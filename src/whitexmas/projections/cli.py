@@ -156,7 +156,14 @@ def ensemble(
 
 @app.command()
 def export(
-    web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
+    web_out: Annotated[
+        Path | None,
+        typer.Option(
+            help="Also stage into this web data folder (real builds always render into "
+            "products/projections/web; the pipeline's export stages from there). Required for a "
+            "placeholder preview."
+        ),
+    ] = None,
     allow_placeholder: Annotated[
         bool,
         typer.Option(
@@ -184,7 +191,9 @@ def export(
         workers=workers,
     )
     typer.echo(
-        f"{len(res['layers'])} layers, {res['points']['tiles']} point tiles"
+        f"{len(res['layers'])} layers, {res['points']['tiles']} point tiles in "
+        f"{res['rendered_into']}"
+        + (f", staged into {res['staged_into']}" if res["staged_into"] else "")
         + (" (PLACEHOLDER baseline)" if res["placeholder"] else "")
     )
 
@@ -194,7 +203,14 @@ def run(
     exclude: Exclude = None,
     threshold: Threshold = 2.5,
     pool: Pool = 7,
-    web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
+    web_out: Annotated[
+        Path | None,
+        typer.Option(
+            help="Also stage into this web data folder (real builds always render into "
+            "products/projections/web; the pipeline's export stages from there). Required for a "
+            "placeholder preview."
+        ),
+    ] = None,
     allow_placeholder: bool = False,
     verbose: bool = False,
 ) -> None:

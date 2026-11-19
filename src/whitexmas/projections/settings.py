@@ -77,3 +77,9 @@ class ProjPaths:
     @property
     def products(self) -> Path:
         return self.root / "products" / "projections"
+
+    @property
+    def staging(self) -> Path:
+        """Where a real export renders ``tiles/proj*.pmtiles`` and ``proj/``; the pipeline's
+        export stages them into its web-out through :func:`export.manifest_fragment`."""
+        return self.products / "web"

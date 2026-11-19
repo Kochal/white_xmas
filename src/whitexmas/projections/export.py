@@ -2,16 +2,20 @@
 
 Writes, from ``interim/projections/projections.zarr``:
 
-- ``<web_out>/tiles/proj__<def>__gwl<g>.pmtiles``: median projected probability (colormap
+Real builds render into the staging folder ``$WHITEXMAS_DATA/products/projections/web``;
+:func:`manifest_fragment` (called by the pipeline's export with its web-out) copies them from
+there into the web-out and verifies them before the layers are listed (D-16).
+
+- ``<staging>/tiles/proj__<def>__gwl<g>.pmtiles``: median projected probability (colormap
   ``probability``), and ``projchange__<def>__gwl<g>.pmtiles``: median change against the
   1996-2025 baseline in percentage points (colormap ``change``), hatched where fewer than two
   thirds of the models agree on the direction. Rendered with the pipeline's tile code so colours
   and glacier hatching match the historical layers.
-- ``<web_out>/proj/<tx>_<ty>.bin.gz`` (+ ``proj/index.json``): ``wx-proj-v1`` point tiles.
+- ``<staging>/proj/<tx>_<ty>.bin.gz`` (+ ``proj/index.json``): ``wx-proj-v1`` point tiles.
 - ``$WHITEXMAS_DATA/products/projections/manifest_fragment.json``: the manifest ``layers``
-  entries and the ``projections`` block; :func:`manifest_fragment` returns it so the pipeline's
-  manifest writer can merge it, and :func:`patch_manifest` merges it into an existing
-  ``manifest.json`` directly.
+  entries and the ``projections`` block; :func:`manifest_fragment` stages the files and returns
+  it so the pipeline's manifest writer can merge it, and :func:`patch_manifest` merges it into
+  an existing ``manifest.json`` directly.
 - ``$WHITEXMAS_DATA/products/projections/cog/*.tif``: COGs of p10, p50, p90 and change
   (a placeholder preview goes to ``cog_placeholder/`` and is tagged ``placeholder=true``).
 
@@ -191,16 +195,104 @@ def projections_block(models: list[str], levels: list[dict], baseline_window: st
     }
 
 
-def manifest_fragment(paths: DataPaths) -> dict | None:
-    """``{"layers": [...], "projections": {...}}`` for the pipeline's manifest, or None when
-    the projections have not been exported (or were built on the placeholder baseline)."""
-    f = ProjPaths.from_data(paths).products / "manifest_fragment.json"
+def _needed_files(staging: Path, frag: dict) -> list[str] | None:
+    """Paths (relative to a web-out) of every file the fragment's layers and point tiles need,
+    or None when the staged set under ``staging`` is missing or incomplete."""
+    idx = staging / "proj" / "index.json"
+    if not idx.is_file():
+        log.warning("projections: %s is missing", idx)
+        return None
+    tiles = json.loads(idx.read_text(encoding="utf-8")).get("tiles", [])
+    rels = [ly["url"] for ly in frag["layers"]] + ["proj/index.json"]
+    rels += [f"proj/{t}.bin.gz" for t in tiles]
+    missing = [r for r in rels if not (staging / r).is_file()]
+    if missing:
+        log.warning("projections: %d staged files missing in %s, e.g. %s", len(missing),
+                    staging, missing[:3])  # fmt: skip
+        return None
+    return rels
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _identical(a: Path, b: Path) -> bool:
+    return b.is_file() and a.stat().st_size == b.stat().st_size and _sha256(a) == _sha256(b)
+
+
+def stage_files(staging: Path, frag: dict, web_out: Path) -> bool:
+    """Copy the fragment's files from ``staging`` into ``web_out`` (skipping identical ones),
+    remove point tiles in ``web_out/proj`` that the new index no longer lists, and verify that
+    every needed file is present and identical. Returns False (copying nothing) when the
+    staged set is incomplete."""
+    import shutil
+
+    rels = _needed_files(staging, frag)
+    if rels is None:
+        return False
+    web_out = Path(web_out)
+    if web_out.resolve() == staging.resolve():
+        return True
+    copied = 0
+    for rel in rels:
+        src, dst = staging / rel, web_out / rel
+        if _identical(src, dst):
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dst.with_name(dst.name + ".tmp")
+        shutil.copyfile(src, tmp)
+        tmp.replace(dst)
+        copied += 1
+    keep = {Path(r).name for r in rels if r.startswith("proj/")}
+    stale = [p for p in (web_out / "proj").glob("*.bin.gz") if p.name not in keep]
+    for p in stale:
+        p.unlink()
+    bad = [r for r in rels if not _identical(staging / r, web_out / r)]
+    if bad:
+        log.warning("projections: %d files did not verify in %s, e.g. %s", len(bad), web_out,
+                    bad[:3])  # fmt: skip
+        return False
+    log.info("projections: staged %d files into %s (%d copied, %d stale point tiles removed)",
+             len(rels), web_out, copied, len(stale))  # fmt: skip
+    return True
+
+
+def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | None:
+    """``{"layers": [...], "projections": {...}}`` for the pipeline's manifest (D-16).
+
+    With ``web_out``: first stages the projection tiles and point tiles into ``web_out`` and
+    verifies them; returns None (so the manifest keeps ``available: false``) when there is no
+    real export, when it was built on the placeholder baseline, or when the staged files are
+    missing or incomplete. Never returns layers whose files are not in ``web_out``.
+
+    Without ``web_out`` (pipeline hooks older than D-16): returns the fragment unverified and
+    logs a warning.
+    """
+    pp = ProjPaths.from_data(paths)
+    f = pp.products / "manifest_fragment.json"
     if not f.exists():
         return None
     frag = json.loads(f.read_text(encoding="utf-8"))
     if frag.get("placeholder"):
         return None
-    return {"layers": frag["layers"], "projections": frag["projections"]}
+    out = {"layers": frag["layers"], "projections": frag["projections"]}
+    if web_out is None:
+        log.warning(
+            "manifest_fragment() called without web_out: projection files are neither staged "
+            "nor verified; pass the export's web_out (D-16)"
+        )
+        return out
+    if not stage_files(pp.staging, frag, Path(web_out)):
+        log.warning("projections left out of the manifest: staged files incomplete")
+        return None
+    return out
 
 
 def patch_manifest(manifest_path: Path, fragment: dict) -> None:
@@ -254,18 +346,22 @@ def is_pipeline_web_out(web_out: Path) -> bool:
 
 def export_projections(
     paths: DataPaths,
-    web_out: Path,
+    web_out: Path | None = None,
     cogs: bool = True,
     allow_placeholder: bool = False,
     definitions: tuple[str, ...] = ("christmas_day",),
     patch: bool = False,
     workers: int | None = None,
 ) -> dict:
-    """Write the projection products. ``patch`` also merges the fragment into an existing
-    ``web_out/manifest.json`` (normally the pipeline's export does that merge itself).
+    """Write the projection products.
 
-    A build on the placeholder baseline is refused unless ``allow_placeholder``, and even then
-    never into the pipeline's ``web/static/data`` (whose contents are bundled and published).
+    A real build always renders into the staging folder (``products/projections/web``); when
+    ``web_out`` is given as well, the files are then staged into it exactly as the pipeline's
+    export does (:func:`manifest_fragment`), and ``patch`` also merges the fragment into an
+    existing ``web_out/manifest.json``.
+
+    A build on the placeholder baseline is refused unless ``allow_placeholder``; it then needs
+    its own ``web_out``, never the staging folder or the pipeline's ``web/static/data``.
     """
     import xarray as xr
 
@@ -283,18 +379,28 @@ def export_projections(
             "projections were built on the PLACEHOLDER baseline; rebuild them once the "
             "pipeline's indicators exist, or pass allow_placeholder for a local preview"
         )
-    if placeholder and is_pipeline_web_out(web_out):
+    if placeholder and (
+        web_out is None
+        or is_pipeline_web_out(web_out)
+        or Path(web_out).resolve() == pp.staging.resolve()
+    ):
         raise RuntimeError(
-            f"refusing to write a PLACEHOLDER preview into {web_out}: that folder is bundled "
-            "and published; pass a separate preview folder as web_out"
+            f"refusing to write a PLACEHOLDER preview into {web_out or pp.staging}: that folder "
+            "is (or feeds) the published bundle; pass a separate preview folder as web_out"
         )
+    target = Path(web_out) if placeholder else pp.staging
+    if not placeholder:
+        # a fresh staging folder, so no stale point tiles survive a rebuild
+        import shutil
+
+        if (target / "proj").exists():
+            shutil.rmtree(target / "proj")
     defs = [str(d) for d in ds["definition"].values if str(d) in definitions]
     if not defs:
         raise ValueError(f"none of {definitions} in {pp.ensemble}")
     gwls = [float(g) for g in ds["gwl"].values]
     models = json.loads(ds.attrs["models"])
     settings = json.loads(ds.attrs["settings"])
-    web_out = Path(web_out)
     jobs = [
         (lid, d, g, var, cmap)
         for d in defs
@@ -316,7 +422,7 @@ def export_projections(
                 g,
                 var,
                 cmap,
-                str(web_out / "tiles" / f"{lid}.pmtiles"),
+                str(target / "tiles" / f"{lid}.pmtiles"),
                 maxzoom,
                 quality,
                 lossless,
@@ -330,7 +436,7 @@ def export_projections(
     d0 = "christmas_day" if "christmas_day" in defs else defs[0]
     sel = ds.sel(definition=d0)
     pts = write_proj_tiles(
-        web_out / "proj",
+        target / "proj",
         sel["p10"].values,
         sel["p50"].values,
         sel["p90"].values,
@@ -350,9 +456,15 @@ def export_projections(
     # a placeholder preview never replaces a real fragment
     frag_name = "manifest_fragment.placeholder.json" if placeholder else "manifest_fragment.json"
     (pp.products / frag_name).write_text(json.dumps(frag, indent=1), encoding="utf-8")
-    if patch and (web_out / "manifest.json").exists():
-        patch_manifest(web_out / "manifest.json", frag)
-        log.info("merged projections into %s", web_out / "manifest.json")
+    staged_into = None
+    if not placeholder and web_out is not None:
+        if manifest_fragment(paths, Path(web_out)) is None:
+            raise RuntimeError(f"staging the projection files into {web_out} failed")
+        staged_into = str(web_out)
+    out_dir = Path(web_out) if web_out is not None else target
+    if patch and (out_dir / "manifest.json").exists():
+        patch_manifest(out_dir / "manifest.json", frag)
+        log.info("merged projections into %s", out_dir / "manifest.json")
     if cogs:
         from ..export.cog import write_cog
 
@@ -371,4 +483,10 @@ def export_projections(
                         ds[k].sel(definition=d, gwl=g).values,
                         tags={**tags, "units": unit, "definition": d, "warming_level": g},
                     )
-    return {"layers": stats, "points": pts, "placeholder": placeholder}
+    return {
+        "layers": stats,
+        "points": pts,
+        "placeholder": placeholder,
+        "rendered_into": str(target),
+        "staged_into": staged_into,
+    }

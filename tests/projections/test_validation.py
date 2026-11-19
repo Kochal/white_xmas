@@ -46,7 +46,8 @@ def test_selection_rule_drops_gross_errors(tmp_path):
     from whitexmas.projections.validation import dropped_models, select_models
 
     (tmp_path / "skill.json").write_text(json.dumps({
-        "reference": "ERA5-Land 1995-2014", "placeholder": False, "models": [
+        "reference": "ERA5-Land 1995-2014", "placeholder": False,
+        "threshold_kg_m2": 2.5, "pool_days": 7, "period": [1996, 2025], "models": [
         {"model": "Good", "corr": 0.95, "mae_transition_pp": 15.0},
         {"model": "Pattern", "corr": 0.6, "mae_transition_pp": 20.0},
         {"model": "Melt", "corr": 0.9, "mae_transition_pp": 20.0},
@@ -88,3 +89,19 @@ def test_validate_never_falls_back_to_the_placeholder(tmp_path):
     with pytest.raises(FileNotFoundError, match="never uses the placeholder"):
         validate(paths, ProjSettings())
     assert not (tmp_path / "interim" / "projections" / "validation" / "selection.json").exists()
+
+
+def test_selection_records_and_checks_its_settings(tmp_path):
+    import json
+
+    from whitexmas.projections.settings import ProjSettings
+    from whitexmas.projections.validation import select_models, selection_mismatch
+
+    (tmp_path / "skill.json").write_text(json.dumps({
+        "reference": "ERA5-Land 1996-2025", "placeholder": False, "threshold_kg_m2": 2.5,
+        "pool_days": 7, "period": [1996, 2025], "models": []}))  # fmt: skip
+    sel = select_models(tmp_path)
+    assert (sel["threshold_kg_m2"], sel["pool_days"], sel["period"]) == (2.5, 7, [1996, 2025])
+    assert selection_mismatch(tmp_path, ProjSettings()) == []
+    diffs = selection_mismatch(tmp_path, ProjSettings(threshold_kg_m2=5.0))
+    assert len(diffs) == 1 and diffs[0].startswith("threshold_kg_m2")

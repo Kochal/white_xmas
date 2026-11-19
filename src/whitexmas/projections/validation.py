@@ -323,11 +323,12 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
     reasons: dict[str, list[str]] = {}
     models: set[str] = set()
     sk = validation_dir / skill_file
-    reference, placeholder = None, True
+    reference, placeholder, made_with = None, True, {}
     if sk.exists():
         skill = json.loads(sk.read_text(encoding="utf-8"))
         reference = skill.get("reference")
         placeholder = bool(skill.get("placeholder", True))
+        made_with = {k: skill.get(k) for k in ("threshold_kg_m2", "pool_days", "period")}
         for r in skill["models"]:
             models.add(r["model"])
             if r.get("corr") is not None and r["corr"] < MIN_CORR:
@@ -345,6 +346,7 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
     out = {
         "reference": reference,
         "placeholder": placeholder,
+        **made_with,
         "rule": {
             "amount_ratio_range": AMOUNT_RATIO_RANGE,
             "min_corr": MIN_CORR,
@@ -360,6 +362,21 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
 
 class UntrustedSelection(RuntimeError):
     """selection.json was not made against real ERA5-Land data."""
+
+
+def selection_mismatch(validation_dir: Path, s: ProjSettings) -> list[str]:
+    """Settings under which the saved selection was made that differ from ``s``."""
+    f = validation_dir / "selection.json"
+    if not f.exists():
+        return []
+    sel = json.loads(f.read_text(encoding="utf-8"))
+    now = {"threshold_kg_m2": s.threshold_kg_m2, "pool_days": s.pool_days,
+           "period": list(s.baseline)}  # fmt: skip
+    return [
+        f"{k}: selection {sel.get(k)!r}, now {v!r}"
+        for k, v in now.items()
+        if k in sel and sel[k] != v
+    ] + [f"{k}: not recorded in the selection" for k in now if k not in sel]
 
 
 def dropped_models(validation_dir: Path) -> list[str]:

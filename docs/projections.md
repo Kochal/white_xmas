@@ -206,14 +206,24 @@ comparing its absolute snow with ERA5-Land.
 ```
 uv run scripts/projections/cmip6_select.py          # plan.json (models, windows, files)
 uv run scripts/projections/cmip6_download.py        # subsets + manifest, resumable
-uv run whitexmas projections run --web-out web/static/data    # real baseline only
-uv run whitexmas export --web-out web/static/data             # merges the projections
+uv run whitexmas projections run      # renders into $WHITEXMAS_DATA/products/projections/web
+uv run whitexmas export               # stages the projection files into its web-out and lists them
 ```
 
 `run` is `changes → validate → ensemble → export`; each step also exists on its own.
 Outputs: `interim/projections/models/<model>.nc` (counts and Δ per model grid),
 `interim/projections/validation/` (bias maps, `skill.csv`, `hindcast.json`),
-`interim/projections/projections.zarr` (0.1° ensemble), and the web products below. A build on
+`interim/projections/projections.zarr` (0.1° ensemble), and the web products below.
+
+**Publishing (D-16).** A real export always renders into the staging folder
+`$WHITEXMAS_DATA/products/projections/web/` (`tiles/proj*.pmtiles`, `proj/`) and writes
+`manifest_fragment.json`. The pipeline's `whitexmas export` calls
+`manifest_fragment(paths, web_out)`, which copies the staged files into that web-out (skipping
+files that are already identical by size and SHA-256, and removing point tiles the new index no
+longer lists), checks that every layer URL and `proj/index.json` with all its tiles are there,
+and only then returns the layers and the `projections` block. If the staged set is missing or
+incomplete it returns None, so the manifest keeps `projections.available: false`; it never lists
+layers whose files are not in the web-out. A build on
 the placeholder baseline (no `interim/indicators.zarr` yet) refuses to export unless
 `--allow-placeholder` is passed, and even then never into `web/static/data` (that folder is
 bundled and published), so a preview needs its own `--web-out`. A placeholder preview writes
@@ -231,8 +241,9 @@ does not record a real ERA5-Land reference.
   `projection_change`, `hatch_disagreement: true`; contract v1.2).
 - `proj/<tx>_<ty>.bin.gz`: `wx-proj-v1` point tiles (p10, median, p90 and agreement per level).
 - `$WHITEXMAS_DATA/products/projections/manifest_fragment.json`: the layer entries and the
-  `projections` block. The pipeline's `whitexmas export` merges it into `manifest.json` (via
-  `whitexmas.projections.export.manifest_fragment`); `--patch-manifest` merges it directly.
+  `projections` block. The pipeline's `whitexmas export` stages the files and merges it into
+  `manifest.json` (via `whitexmas.projections.export.manifest_fragment(paths, web_out)`);
+  `whitexmas projections export --web-out X --patch-manifest` stages into X and merges directly.
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
 Sizes on the real baseline: 15.6 MB for the 6 layers and 1.6 MB of point tiles.
@@ -299,10 +310,9 @@ What the numbers say:
   later; most models reach it only under SSP5-8.5".
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
-Staged in `$WHITEXMAS_DATA/products/projections/web/` (`tiles/`, `proj/`). For the published
-bundle they go into the pipeline's web-out, and `whitexmas export` lists them through
-`manifest_fragment` (this needs a checkout that contains both the pipeline and the projections
-package).
+Rendered into `$WHITEXMAS_DATA/products/projections/web/` (`tiles/`, `proj/`). `whitexmas export`
+stages them into its web-out and lists them (see "Publishing" above); this needs a checkout that
+contains both the pipeline and the projections package.
 
 ## Validation and model selection
 
