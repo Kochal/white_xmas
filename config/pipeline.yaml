@@ -181,3 +181,59 @@ stations:
     - [JA000047575, Aomori]
     - [KSM00047108, Seoul]
     - [KSM00047101, Chuncheon]
+
+# States and provinces (`whitexmas admin1`, contract v1.6): per-region statistics from the same
+# indicators, written to $WHITEXMAS_DATA/products/admin1/ and staged into the web data by export.
+admin1:
+  source: ne_10m_admin_1_states_provinces.zip   # Natural Earth 10m admin-1, public domain
+  # Natural Earth splits these countries below their first administrative level; their parts
+  # are dissolved by a column of the source. ids/names map a group value to the region's id
+  # (ISO 3166-2 where one exists) and English name; unmapped groups keep the group value as
+  # name and get "<ADM0>-<SLUG>" as id (id_from: take the id from that source column).
+  dissolve:
+    ITA:   # 110 provinces -> 20 regions
+      by: region
+      id_from: region_cod
+      names: {Lombardia: Lombardy, Piemonte: Piedmont, Toscana: Tuscany, Sardegna: Sardinia,
+              "Valle d'Aosta": Aosta Valley, Trentino-Alto Adige: Trentino-South Tyrol}
+    FRA:   # 101 departements -> 13 metropolitan and 5 overseas regions (+ Clipperton, admin-0)
+      by: region
+      id_from: region_cod
+      names: {Bretagne: Brittany, Normandie: Normandy, Corse: Corsica,
+              Guyane française: French Guiana}
+    ESP:   # 52 provinces -> 17 autonomous communities and 2 autonomous cities
+      by: region
+      ids: {Andalucía: ES-AN, Aragón: ES-AR, Asturias: ES-AS, Canary Is.: ES-CN,
+            Cantabria: ES-CB, Castilla y León: ES-CL, Castilla-La Mancha: ES-CM,
+            Cataluña: ES-CT, Ceuta: ES-CE, Extremadura: ES-EX, Foral de Navarra: ES-NC,
+            Galicia: ES-GA, Islas Baleares: ES-IB, La Rioja: ES-RI, Madrid: ES-MD,
+            Melilla: ES-ML, Murcia: ES-MC, País Vasco: ES-PV, Valenciana: ES-VC}
+      names: {Andalucía: Andalusia, Aragón: Aragon, Canary Is.: Canary Islands,
+              Castilla y León: Castile and León, Cataluña: Catalonia,
+              Foral de Navarra: Navarre, Islas Baleares: Balearic Islands,
+              País Vasco: Basque Country, Valenciana: Valencian Community,
+              Madrid: Community of Madrid, Murcia: Region of Murcia}
+    GBR:   # 232 local authorities -> the four countries
+      by: geonunit
+      ids: {England: GB-ENG, Scotland: GB-SCT, Wales: GB-WLS, Northern Ireland: GB-NIR}
+    SVN:   # 193 municipalities -> 12 statistical regions
+      by: region
+  # Regions with fewer land cells than this (sum of cell fractions) are flagged low_res.
+  low_res_cells: 3
+  # Exact polygon-cell intersection for regions whose bounding box spans at most this many
+  # cells; larger regions use supersampling (factor 10, or 4 above supersample_big_cells).
+  exact_max_cells: 400
+  supersample: 10
+  supersample_big: 4
+  supersample_big_cells: 1000000
+  # A region without a usable land cell takes the nearest land cell within this many cells.
+  nearest_radius: 2
+  # Spread inside a region: area share at or above this probability (%).
+  spread_share_pct: 50
+  # Projected regional change smaller than this (pp) counts as "no change" for agreement.
+  proj_zero_pp: 0.05
+  # Web boundaries: coverage simplification tolerance (degrees), coordinate decimals, and
+  # polygon parts smaller than min_part_km2 dropped (a region always keeps its largest part).
+  simplify_deg: 0.03
+  coord_decimals: 3
+  min_part_km2: 30

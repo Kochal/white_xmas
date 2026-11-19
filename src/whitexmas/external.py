@@ -1,4 +1,4 @@
-"""Third-party reference data: GeoNames (places) and Natural Earth (country borders).
+"""Third-party reference data: GeoNames (places) and Natural Earth (country and admin-1 borders).
 
 Downloaded once into ``$WHITEXMAS_DATA/external/`` with a manifest of URLs and SHA-256.
 """
@@ -23,6 +23,8 @@ SOURCES = {
     "alternateNamesV2.zip": GEONAMES + "alternateNamesV2.zip",
     "ne_10m_admin_0_countries.zip": "https://naciscdn.org/naturalearth/10m/cultural/"
     "ne_10m_admin_0_countries.zip",
+    "ne_10m_admin_1_states_provinces.zip": "https://naciscdn.org/naturalearth/10m/cultural/"
+    "ne_10m_admin_1_states_provinces.zip",
 }
 USER_AGENT = "whitexmas-pipeline/0.1 (+https://github.com/Kochal/white_xmas)"
 

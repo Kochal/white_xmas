@@ -31,3 +31,6 @@ test-results
 # Test output
 /playwright-report
 /lighthouse
+
+# The generic "data" rule in the repository root .gitignore must not hide the site's data layer.
+!src/lib/data/

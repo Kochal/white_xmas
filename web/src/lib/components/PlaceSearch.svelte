@@ -1,20 +1,28 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { searchPlaces, warmSearch, type Place, type SearchHit } from '#lib/data/places.ts';
+	import type { Admin1Index, RegionRow } from '#lib/data/admin1.ts';
+	import { mergeHits, searchRegions, type MergedHit } from '#lib/data/admin1-search.ts';
+	import { searchPlaces, warmSearch, type Place } from '#lib/data/places.ts';
 	import { formatPct } from '#lib/format/format.ts';
 
 	interface Props {
 		/** Loads places on first focus, so the first page load stays light. */
 		loadPlaces: () => Promise<Place[]>;
 		onpick: (place: Place) => void;
+		/** States and provinces (contract v1.6): when on, they are searched too. */
+		regionsEnabled?: boolean;
+		/** Loads the region index on first focus (never before: it is ~130 kB gzipped). */
+		loadRegions?: () => Promise<Admin1Index>;
+		onpickregion?: (row: RegionRow) => void;
 	}
 
-	let { loadPlaces, onpick }: Props = $props();
+	let { loadPlaces, onpick, regionsEnabled = false, loadRegions, onpickregion }: Props = $props();
 
 	let query = $state('');
 	// raw: 34k plain objects must not become deep reactive proxies (slow, and breaks the index cache)
 	let places = $state.raw<Place[] | null>(null);
 	let loadError = $state<string | null>(null);
+	let regionIndex = $state.raw<Admin1Index | null>(null);
 	let open = $state(false);
 	let active = $state(-1);
 	let input: HTMLInputElement;
@@ -32,9 +40,15 @@
 		searched = query;
 	}
 
-	const hits = $derived<SearchHit[]>(
-		places && searched.trim() ? searchPlaces(places, searched, 8) : []
-	);
+	const hits = $derived.by<MergedHit[]>(() => {
+		const q = searched.trim();
+		const placeHits = places && q ? searchPlaces(places, searched, 8) : [];
+		const regionHits =
+			regionsEnabled && regionIndex && q
+				? searchRegions(regionIndex.rows, regionIndex.countries, searched, 4)
+				: [];
+		return mergeHits(placeHits, regionHits, 8);
+	});
 
 	// Text typed into the prerendered box before the app hydrated: pick it up.
 	onMount(() => {
@@ -48,7 +62,17 @@
 	});
 	const listId = 'place-search-list';
 
+	async function ensureRegions() {
+		if (!regionsEnabled || !loadRegions || regionIndex) return;
+		try {
+			regionIndex = await loadRegions();
+		} catch {
+			/* the place search still works without regions */
+		}
+	}
+
 	async function ensurePlaces() {
+		ensureRegions();
 		if (places || loadError) return;
 		try {
 			const list = await loadPlaces();
@@ -60,11 +84,16 @@
 		}
 	}
 
-	function pick(h: SearchHit) {
-		query = h.place.name;
+	function pick(h: MergedHit) {
 		open = false;
 		active = -1;
-		onpick(h.place);
+		if (h.kind === 'region') {
+			query = h.hit.row.name;
+			onpickregion?.(h.hit.row);
+		} else {
+			query = h.hit.place.name;
+			onpick(h.hit.place);
+		}
 	}
 
 	function onkeydown(e: KeyboardEvent) {
@@ -120,7 +149,9 @@
 		role="combobox"
 		autocomplete="off"
 		spellcheck="false"
-		placeholder="Search a city or town"
+		placeholder={regionsEnabled
+			? 'Search a city, town, state or province'
+			: 'Search a city or town'}
 		aria-autocomplete="list"
 		aria-controls={listId}
 		aria-expanded={open && hits.length > 0}
@@ -147,7 +178,7 @@
 			aria-busy={searched !== query}
 			class:stale={searched !== query && hits.length > 0}
 		>
-			{#each hits as h, k (h.place.name + h.place.lat + h.place.lon)}
+			{#each hits as h, k (h.kind === 'region' ? `r:${h.hit.row.id}` : `p:${h.hit.place.name}:${h.hit.place.lat}:${h.hit.place.lon}`)}
 				<li
 					id="place-opt-{k}"
 					role="option"
@@ -158,17 +189,36 @@
 						pick(h);
 					}}
 				>
-					<span class="name">
-						{h.place.name}{#if h.matched !== h.place.name && h.matched !== h.place.ascii}
-							<span class="muted"> ({h.matched})</span>{/if}
-					</span>
-					<span class="where muted">
-						{[h.place.admin1, countryName(h.place.country)].filter(Boolean).join(', ')}
-					</span>
-					{#if h.place.p_now !== null}
-						<span class="p" title="White Christmas probability, recent 30 years">
-							{formatPct(h.place.p_now)}
+					{#if h.kind === 'region'}
+						<span class="name">
+							{h.hit.row.name}{#if h.hit.matched !== h.hit.row.name}
+								<span class="muted"> ({h.hit.matched})</span>{/if}
 						</span>
+						<span class="where muted">
+							<span class="tag" data-testid="region-type">
+								{h.hit.row.type || 'State or province'}
+							</span>
+							{h.hit.countryName}
+						</span>
+						{#if h.hit.row.p_now !== null}
+							<span class="p" title="Share of the region with a white Christmas, recent 30 years">
+								{formatPct(h.hit.row.p_now)}
+							</span>
+						{/if}
+					{:else}
+						<span class="name">
+							{h.hit.place
+								.name}{#if h.hit.matched !== h.hit.place.name && h.hit.matched !== h.hit.place.ascii}
+								<span class="muted"> ({h.hit.matched})</span>{/if}
+						</span>
+						<span class="where muted">
+							{[h.hit.place.admin1, countryName(h.hit.place.country)].filter(Boolean).join(', ')}
+						</span>
+						{#if h.hit.place.p_now !== null}
+							<span class="p" title="White Christmas probability, recent 30 years">
+								{formatPct(h.hit.place.p_now)}
+							</span>
+						{/if}
 					{/if}
 				</li>
 			{:else}
@@ -258,6 +308,14 @@
 		align-self: center;
 		font-variant-numeric: tabular-nums;
 		font-size: 0.9rem;
+	}
+	.tag {
+		display: inline-block;
+		margin-right: 4px;
+		padding: 0 6px;
+		font-size: 0.72rem;
+		border: 1px solid var(--line);
+		border-radius: 999px;
 	}
 	li.empty {
 		display: block;

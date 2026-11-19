@@ -2,8 +2,9 @@
 
 Writes into ``web_out`` (normally ``web/static/data``):
 manifest.json, tiles/<layer>.pmtiles, points/index.json + points/<tx>_<ty>.bin.gz,
-places.json, regions.json. COGs go to ``$WHITEXMAS_DATA/products/cog/`` and the bundle
-``whitexmas-web-data-<data_version>.tar.gz`` to ``$WHITEXMAS_DATA/products/``.
+places.json, regions.json and, when built, admin1/ (states and provinces). COGs go to
+``$WHITEXMAS_DATA/products/cog/`` and the bundle ``whitexmas-web-data-<data_version>.tar.gz``
+to ``$WHITEXMAS_DATA/products/``.
 """
 
 from __future__ import annotations
@@ -164,11 +165,14 @@ def manifest_thresholds(cfg: Config) -> list[dict]:
     return out
 
 
-def build_manifest(cfg: Config, layers: list[dict], frag: dict | None = None) -> dict:
+def build_manifest(
+    cfg: Config, layers: list[dict], frag: dict | None = None, admin1: dict | None = None
+) -> dict:
     """manifest.json content (contract v1.5) for the given layers and projections fragment.
 
     Every layer carries a ``threshold``; projection layers, which exist only for the default
-    threshold, get the default id when the fragment does not set one.
+    threshold, get the default id when the fragment does not set one. ``admin1``: the states
+    and provinces block (contract v1.6), listed only when its files were staged.
     """
     default_id = cfg.default_threshold["id"]
     out_layers = []
@@ -204,6 +208,8 @@ def build_manifest(cfg: Config, layers: list[dict], frag: dict | None = None) ->
             "regions": "regions.json",
         }
     )
+    if admin1:
+        m["admin1"] = admin1
     return m
 
 
@@ -290,6 +296,13 @@ def export_all(
     # export. Given web_out, it stages its tiles and proj/ point files into that folder and
     # returns None if they are missing, so this export alone yields a complete bundle.
     frag = manifest_fragment(paths, web_out)
+    # States and provinces (contract v1.6): staged from products/admin1 when a complete build
+    # is there; otherwise any earlier copy is removed so the bundle never carries stale files.
+    from ..admin1.export import stage as stage_admin1
+
+    admin1 = stage_admin1(paths.products / "admin1", web_out)
+    if admin1 is None and (web_out / "admin1").exists():
+        shutil.rmtree(web_out / "admin1")
 
     # 1 · raster layers -------------------------------------------------------------
     decades_all = bool(ex.get("decades_for_all_definitions", True))
@@ -424,7 +437,7 @@ def export_all(
 
     # 5 · manifest -------------------------------------------------------------------
     dv = data_version(cfg)
-    manifest = build_manifest(cfg, layers, frag)
+    manifest = build_manifest(cfg, layers, frag, admin1)
     write_json(web_out / "manifest.json", manifest)
     total += (web_out / "manifest.json").stat().st_size
     log.info("web data: %d files, %.1f MB (largest %s)", len(sizes) + 1, total / 1e6,

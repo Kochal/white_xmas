@@ -142,6 +142,13 @@ glacier cells excluded. Countries are identified by their ISO 3166 three-letter 
 Earth draws a country as several pieces with the same code (for example Kazakhstan and the leased
 Baikonur area, or Australia and its small island territories), the pieces are counted together.
 
+## States and provinces
+
+The same averaging is done for about 4,000 states, provinces and regions (Natural Earth admin-1),
+with cells split by the share that lies inside each region, and with the spread inside the region
+and a population-weighted value alongside; the method is described in
+[docs/admin1.md](https://github.com/Kochal/white_xmas/blob/main/docs/admin1.md).
+
 ## Places
 
 The search list uses all places with at least 15,000 inhabitants from GeoNames. Each place takes the

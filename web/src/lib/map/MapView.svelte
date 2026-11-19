@@ -1,8 +1,35 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import type { RegionRow } from '#lib/data/admin1.ts';
 	import type { Layer } from '#lib/data/manifest.ts';
 	import type { MapView as View } from '#lib/url-state.ts';
 	import { climateLayerBefore, slimBasemap, withClimateLayer } from './basemap.ts';
+	import {
+		DARK,
+		FILL_LAYER,
+		LABELS_SOURCE,
+		LIGHT,
+		REGIONS_SOURCE,
+		SELECTED_FILL,
+		SELECTED_LINE,
+		labelCollection,
+		regionBounds,
+		regionLayers,
+		stateLayerIds,
+		type StyleLayerInfo,
+		toggledLayerIds
+	} from './regions-layer.ts';
+
+	/** The states-and-provinces layer (contract v1.6): outlines, rows for the labels, toggle. */
+	export interface RegionsProp {
+		/** Outlines file, relative to the data base; the map's worker fetches and parses it. null: not wanted yet. */
+		boundariesPath: string | null;
+		rows: RegionRow[];
+		/** Borders, labels and hover on; the selected outline shows either way. */
+		show: boolean;
+		/** Region id (`DE-BY`) to outline, if any. */
+		selected: string | null;
+	}
 
 	interface Props {
 		dataBase: string;
@@ -12,9 +39,25 @@
 		attribution: string;
 		onselect: (lon: number, lat: number) => void;
 		onviewchange: (view: View) => void;
+		regions?: RegionsProp;
+		/** A click (or Enter at the centre) on a region while the layer is shown. */
+		onregionselect?: (id: string) => void;
+		/** Progress of the outlines: 'loading' once requested, 'ready' when drawn, 'error' if they failed. */
+		onregionsstatus?: (status: 'loading' | 'ready' | 'error', detail?: string) => void;
 	}
 
-	let { dataBase, layer, view, selected, attribution, onselect, onviewchange }: Props = $props();
+	let {
+		dataBase,
+		layer,
+		view,
+		selected,
+		attribution,
+		onselect,
+		onviewchange,
+		regions,
+		onregionselect,
+		onregionsstatus
+	}: Props = $props();
 
 	const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/positron';
 	const STYLE_DARK = 'https://tiles.openfreemap.org/styles/dark';
@@ -40,6 +83,9 @@
 	let basemapLoaded = false;
 	let marker: import('maplibre-gl').Marker | null = null;
 	let maplibre: typeof import('maplibre-gl') | null = null;
+	/** Name under the pointer while hovering a region (desktop). */
+	let hoverName = $state<string | null>(null);
+	let hoverId: number | null = null;
 
 	function absolute(path: string): string {
 		return new URL(`${dataBase}/${path}`, window.location.href).href;
@@ -67,6 +113,64 @@
 			},
 			climateLayerBefore(m.getStyle().layers)
 		);
+	}
+
+	/**
+	 * Adds the region sources and layers once the outlines have arrived, and keeps their
+	 * visibility, outline and the basemap's own state layers in step. Safe to call again.
+	 */
+	function applyRegions(m: import('maplibre-gl').Map, r: RegionsProp | undefined) {
+		if (!r || !r.boundariesPath) return;
+		const style = m.getStyle();
+		const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+		const specs = regionLayers(dark ? DARK : LIGHT, !!style.glyphs);
+		if (!m.getSource(REGIONS_SOURCE)) {
+			// a URL, not an object: MapLibre's worker fetches and parses the 5 MB file, not this thread
+			onregionsstatus?.('loading');
+			m.addSource(REGIONS_SOURCE, { type: 'geojson', data: absolute(r.boundariesPath) });
+			m.addSource(LABELS_SOURCE, {
+				type: 'geojson',
+				data: labelCollection(
+					r.rows
+				) as unknown as import('maplibre-gl').GeoJSONSourceSpecification['data']
+			});
+		}
+		for (const spec of specs) if (!m.getLayer(spec.id)) m.addLayer(spec);
+		const toggled = new Set(toggledLayerIds(specs));
+		for (const spec of specs)
+			m.setLayoutProperty(
+				spec.id,
+				'visibility',
+				toggled.has(spec.id) && !r.show ? 'none' : 'visible'
+			);
+		const filter = [
+			'==',
+			['get', 'id'],
+			r.selected ?? ''
+		] as import('maplibre-gl').FilterSpecification;
+		for (const id of [SELECTED_FILL, SELECTED_LINE]) m.setFilter(id, filter);
+		// our outlines replace the basemap's own state borders and names
+		for (const id of stateLayerIds(style.layers as StyleLayerInfo[]))
+			m.setLayoutProperty(id, 'visibility', r.show ? 'none' : 'visible');
+		if (!r.show) clearHover(m);
+	}
+
+	function clearHover(m: import('maplibre-gl').Map) {
+		if (hoverId !== null && m.getSource(REGIONS_SOURCE))
+			m.setFeatureState({ source: REGIONS_SOURCE, id: hoverId }, { hover: false });
+		hoverId = null;
+		hoverName = null;
+	}
+
+	/** The region id (`DE-BY`) drawn at a screen point, if the layer is on. */
+	function regionAt(
+		m: import('maplibre-gl').Map,
+		point: import('maplibre-gl').PointLike
+	): string | null {
+		if (!regions?.show || !m.getLayer(FILL_LAYER)) return null;
+		const f = m.queryRenderedFeatures(point, { layers: [FILL_LAYER] })[0];
+		const id = f?.properties?.id;
+		return typeof id === 'string' ? id : null;
 	}
 
 	/**
@@ -130,6 +234,7 @@
 						clearTimeout(styleTimer);
 					}
 					applyLayer(m, layer);
+					applyRegions(m, regions);
 				});
 				const loadBasemap = () => {
 					basemapLoaded = false;
@@ -143,19 +248,50 @@
 					});
 				};
 				m.once('load', loadBasemap);
-				m.on('click', (e) => onselect(e.lngLat.lng, e.lngLat.lat));
+				m.on('click', (e) => {
+					const id = regionAt(m, e.point);
+					if (id && onregionselect) onregionselect(id);
+					else onselect(e.lngLat.lng, e.lngLat.lat);
+				});
+				// hover highlight and name tooltip (mouse only; touch has no hover)
+				m.on('mousemove', (e) => {
+					if (!regions?.show || !m.getLayer(FILL_LAYER)) return;
+					const f = m.queryRenderedFeatures(e.point, { layers: [FILL_LAYER] })[0];
+					const fid = typeof f?.id === 'number' ? f.id : null;
+					m.getCanvas().style.cursor = fid === null ? '' : 'pointer';
+					if (fid === hoverId) return;
+					if (hoverId !== null)
+						m.setFeatureState({ source: REGIONS_SOURCE, id: hoverId }, { hover: false });
+					hoverId = fid;
+					if (fid !== null) m.setFeatureState({ source: REGIONS_SOURCE, id: fid }, { hover: true });
+					const name = fid === null ? undefined : regions.rows[fid]?.name;
+					hoverName = name ?? null;
+				});
+				m.getCanvas().addEventListener('mouseleave', () => {
+					m.getCanvas().style.cursor = '';
+					clearHover(m);
+				});
 				// keyboard: arrows pan (built in), Enter or Space selects the point at the centre
 				m.getCanvas().addEventListener('keydown', (e) => {
 					if (e.key !== 'Enter' && e.key !== ' ') return;
 					e.preventDefault();
 					const c = m.getCenter();
-					onselect(c.lng, c.lat);
+					const id = regionAt(m, m.project(c));
+					if (id && onregionselect) onregionselect(id);
+					else onselect(c.lng, c.lat);
 				});
 				m.on('moveend', () => {
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
 				});
+				m.on('sourcedata', (e) => {
+					if (e.sourceId === REGIONS_SOURCE && e.isSourceLoaded) onregionsstatus?.('ready');
+				});
 				m.on('error', (e) => {
+					if ((e as { sourceId?: string }).sourceId === REGIONS_SOURCE) {
+						onregionsstatus?.('error', e.error?.message);
+						return;
+					}
 					if (!basemapLoaded && !(e as { sourceId?: string }).sourceId) {
 						basemapDown = true;
 						clearTimeout(styleTimer);
@@ -194,6 +330,14 @@
 		if (map && styleReady) applyLayer(map, l);
 	});
 
+	// add, show, hide and outline the regions when the outlines arrive or the controls change
+	$effect(() => {
+		const r = regions;
+		// read the fields here so the effect re-runs when they change
+		void [r?.boundariesPath, r?.show, r?.selected, r?.rows];
+		if (map && styleReady) applyRegions(map, r);
+	});
+
 	// keep the marker on the selected cell
 	$effect(() => {
 		const s = selected;
@@ -207,6 +351,20 @@
 		marker.setLngLat([s.lon, s.lat]).addTo(map);
 	});
 
+	/** Zoom to a region's bounding box (west, south, east, north), clear of the open panel. */
+	export function fitBounds(bbox: readonly number[]) {
+		const bounds = regionBounds(bbox);
+		if (!map || !bounds) return;
+		const wide = window.innerWidth > 720;
+		map.fitBounds(bounds, {
+			padding: wide
+				? { top: 40, bottom: 40, left: 360, right: 420 }
+				: { top: 110, bottom: Math.round(window.innerHeight * 0.45), left: 24, right: 24 },
+			maxZoom: 8,
+			essential: true
+		});
+	}
+
 	/** Fly to a coordinate (used by search). */
 	export function flyTo(lon: number, lat: number, zoom = 7) {
 		map?.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), zoom), essential: true });
@@ -217,8 +375,13 @@
 	class="map"
 	bind:this={container}
 	role="region"
-	aria-label="Map of white Christmas probability. Click anywhere, or use the arrow keys and press Enter, to see the history of the point at the centre."
+	aria-label={regions?.show
+		? 'Map of white Christmas probability with state and province borders. Click a region, or use the arrow keys and press Enter, to see the state or province at the centre.'
+		: 'Map of white Christmas probability. Click anywhere, or use the arrow keys and press Enter, to see the history of the point at the centre.'}
 ></div>
+{#if hoverName}
+	<p class="region-tip" role="presentation">{hoverName}</p>
+{/if}
 {#if basemapDown}
 	<p class="basemap-note" role="status">The background map is unavailable right now.</p>
 {/if}
@@ -233,6 +396,20 @@
 		position: absolute;
 		inset: 0;
 		background: var(--surface-2);
+	}
+	.region-tip {
+		position: absolute;
+		z-index: 4;
+		left: 50%;
+		bottom: 12px;
+		transform: translateX(-50%);
+		margin: 0;
+		padding: 3px 10px;
+		font-size: 0.82rem;
+		background: var(--surface);
+		border-radius: 6px;
+		box-shadow: var(--shadow);
+		pointer-events: none;
 	}
 	.basemap-note {
 		position: absolute;

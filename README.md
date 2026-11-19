@@ -8,6 +8,7 @@ for every land cell on Earth, using the ERA5-Land reanalysis (0.1°, about 9 km)
 - `src/whitexmas/`: the Python pipeline (download → ingest → indicators → export).
 - `web/`: the website (SvelteKit, MapLibre, PMTiles), built from the files the pipeline exports.
 - `docs/methodology.md`: data, definitions, statistics and limitations, in plain language.
+- `docs/admin1.md`: statistics for states and provinces (method and web data schema).
 - `legacy/`: the original notebook and download script, kept for reference only.
 
 ## Definitions
@@ -42,6 +43,7 @@ Or step by step:
 | `whitexmas ingest` | NetCDF → one Zarr cube `snow_depth_cm[year, day, lat, lon]` (int16, whole cm, −1 = nodata) and masks | `interim/snow_cube.zarr` |
 | `whitexmas indicators` | probability and valid years per definition and window, change between the normals, trend + Mann-Kendall p, glacier flag, for every threshold | `interim/indicators.zarr` (default), `interim/indicators__raw.zarr` |
 | `whitexmas export --web-out web/static/data` | web data per the web data contract (manifest, PMTiles, point tiles, places, regions), COGs, the data bundle | `web/static/data/`, `products/cog/`, `products/whitexmas-web-data-<version>.tar.gz` |
+| `whitexmas admin1 run` | statistics per state and province (Natural Earth admin-1): regional probabilities, spread, yearly series, trend, projections; contract v1.6 (`docs/admin1.md`). Run before `export`, which then ships them | `interim/admin1/`, `products/admin1/` (web files, CSV) |
 | `whitexmas stations` | checks the snow thresholds against 46 GHCN-Daily weather stations | `products/sanity/snow_variable_check.html` |
 | `whitexmas sanity --legacy-tif <tif>` | city values for every threshold, the station-check summary and a comparison with the legacy map | `products/sanity/` |
 
@@ -69,4 +71,5 @@ uv run pytest
   Muñoz Sabater, J. (2019, updated): ERA5-Land hourly data from 1950 to present. Copernicus Climate
   Change Service (C3S) Climate Data Store (CDS). DOI: 10.24381/cds.e2161bac
 - Place names: [GeoNames](https://www.geonames.org/) (CC BY 4.0).
-- Country boundaries: [Natural Earth](https://www.naturalearthdata.com/) (public domain).
+- Country, state and province boundaries: [Natural Earth](https://www.naturalearthdata.com/)
+  (public domain).

@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { DATA_BASE } from '#lib/config.ts';
+	import type { Admin1Index, CountryFile, RegionRow } from '#lib/data/admin1.ts';
 	import type { Layer, LayerKind, Manifest } from '#lib/data/manifest.ts';
 	import type { Place } from '#lib/data/places.ts';
 	import type { CellLookup, DataSource } from '#lib/data/source.ts';
@@ -27,7 +28,13 @@
 	import PlacePanel from '#lib/panel/PlacePanel.svelte';
 	import type { PlaceLabel } from '#lib/panel/types.ts';
 	import Seo from '#lib/components/Seo.svelte';
-	import { parseUrlState, serializeUrlState, type MapView as View } from '#lib/url-state.ts';
+	import {
+		parseRegionHash,
+		rejectedRegionHash,
+		parseUrlState,
+		serializeUrl,
+		type MapView as View
+	} from '#lib/url-state.ts';
 
 	const DEFAULT_VIEW: View = { zoom: 3, lat: 48, lon: 10 };
 	const ERA5_ATTRIBUTION =
@@ -52,6 +59,36 @@
 	let controlsOpen = $state(false);
 	let ready = $state(false);
 	let mapView = $state<ReturnType<typeof MapView> | null>(null);
+
+	// states and provinces (contract v1.6): all of it loads lazily, never with the first paint
+	/** The user's "States and provinces" switch: borders, names and hover on the whole map. */
+	let regionsOn = $state(false);
+	let regionIndex = $state.raw<Admin1Index | null>(null);
+	let indexLoading = $state(false);
+	let outlineStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	/** Save-Data and 2G users don't get the 1.4 MB outlines just to see one region's edge. */
+	let outlinesOk = true;
+	let regionId = $state<string | null>(null);
+	let regionCountry = $state.raw<CountryFile | null>(null);
+	let regionError = $state<string | null>(null);
+	/** A status line for region problems; outside the (on phones folded) layer controls. */
+	let regionsNote = $state<string | null>(null);
+	/** The region panel's code (charts, statistics) loads with the first region, not the page. */
+	let RegionPanel = $state.raw<typeof import('#lib/panel/RegionPanel.svelte').default | null>(null);
+	const hasRegions = $derived(!!manifest?.admin1?.available);
+	const regionRow = $derived<RegionRow | null>(
+		regionIndex && regionId ? (regionIndex.rows.find((r) => r.id === regionId) ?? null) : null
+	);
+	const hasPanel = $derived(!!at || !!regionId);
+	/** Outlines are fetched for the switch, or for the selected region's outline. */
+	const wantOutlines = $derived(regionsOn || (!!regionId && outlinesOk));
+	const regionsProp = $derived({
+		// the index comes first: the label points are built from its rows when the source is added
+		boundariesPath: wantOutlines && regionIndex ? (manifest?.admin1?.boundaries ?? null) : null,
+		rows: regionIndex?.rows ?? [],
+		show: regionsOn,
+		selected: regionId
+	});
 
 	const layer = $derived<Layer | null>(manifest ? resolveLayer(manifest, selection) : null);
 	const kinds = $derived<LayerKind[]>(
@@ -122,6 +159,7 @@
 	let lookupSeq = 0;
 	async function select(lon: number, lat: number, placeLabel: PlaceLabel | null, nearestLand = 0) {
 		if (!ds) return;
+		dropRegion();
 		at = { lon, lat };
 		label = placeLabel;
 		loading = true;
@@ -175,7 +213,93 @@
 		label = null;
 		lookup = null;
 		lookupError = null;
+		dropRegion();
 		panelExpanded = false;
+	}
+
+	function dropRegion() {
+		regionSeq++;
+		regionId = null;
+		regionCountry = null;
+		regionError = null;
+	}
+
+	const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+	const noSuchRegion = (id: string) => `There is no state or province “${id}” in this dataset.`;
+
+	/** The region index (~130 kB gzipped), loaded on first use. Failures are reported, not hidden. */
+	async function ensureIndex(): Promise<Admin1Index | null> {
+		if (regionIndex) return regionIndex;
+		if (!ds) return null;
+		indexLoading = true;
+		try {
+			regionIndex = await ds.admin1Index();
+			return regionIndex;
+		} catch (e) {
+			regionsNote = `The state and province data could not be loaded: ${message(e)}`;
+			return null;
+		} finally {
+			indexLoading = false;
+		}
+	}
+
+	async function setRegionsOn(on: boolean) {
+		regionsOn = on;
+		if (!on) return;
+		regionsNote = null;
+		if (!(await ensureIndex())) regionsOn = false;
+	}
+
+	let regionSeq = 0;
+	/**
+	 * Selects a state or province: its panel opens at once from the index row, and the
+	 * country file with the statistics follows. `fly` zooms to it (search, deep link). The
+	 * borders switch is left as the user set it: the region draws only its own outline.
+	 */
+	async function selectRegion(id: string, opts: { fly: boolean }) {
+		if (!ds) return;
+		const seq = ++regionSeq;
+		const index = await ensureIndex();
+		if (seq !== regionSeq || !index) return;
+		const row = index.rows.find((r) => r.id === id);
+		if (!row) {
+			// a stale or mistyped link: say so rather than leave a plain map
+			regionId = null;
+			regionsNote = noSuchRegion(id);
+			return;
+		}
+		try {
+			RegionPanel ??= (await import('#lib/panel/RegionPanel.svelte')).default;
+		} catch {
+			// e.g. a stale chunk after a new deploy: nothing is selected, say so
+			if (seq === regionSeq) regionsNote = 'The region panel could not be loaded. Reload the page.';
+			return;
+		}
+		if (seq !== regionSeq) return;
+		at = null;
+		label = null;
+		lookup = null;
+		lookupError = null;
+		regionId = id;
+		regionCountry = null;
+		regionError = null;
+		regionsNote = null;
+		if (opts.fly) mapView?.flyTo(row.lon, row.lat, 4);
+		controlsOpen = false;
+		try {
+			const country = await ds.admin1Country(row.country);
+			if (seq !== regionSeq) return;
+			regionCountry = country;
+			const bbox = country.regions.find((r) => r.id === id)?.bbox;
+			// east may exceed 180 for a region across the antimeridian (Alaska): used as it is
+			if (opts.fly && bbox) mapView?.fitBounds(bbox);
+		} catch (e) {
+			if (seq === regionSeq) regionError = message(e);
+		}
+	}
+
+	function pickRegion(row: RegionRow) {
+		selectRegion(row.id, { fly: true });
 	}
 
 	/**
@@ -198,17 +322,19 @@
 	// keep the URL in sync (debounced), so every view is shareable
 	let urlTimer: ReturnType<typeof setTimeout> | undefined;
 	$effect(() => {
-		const qs = serializeUrlState({
+		const qs = serializeUrl({
 			view,
 			selection,
 			at: at ?? undefined,
-			place: label?.name
+			place: label?.name,
+			regions: regionsOn,
+			region: regionId ?? undefined
 		});
 		if (!ready) return;
 		clearTimeout(urlTimer);
 		urlTimer = setTimeout(() => {
 			const url = `${window.location.pathname}${qs}`;
-			if (url !== `${window.location.pathname}${window.location.search}`) {
+			if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
 				// The URL comes from window.location.pathname, which already carries the base path.
 				// eslint-disable-next-line svelte/no-navigation-without-resolve
 				goto(url, { replace: true, shallow: true }).catch(() => {});
@@ -217,7 +343,7 @@
 	});
 
 	onMount(() => {
-		const url = parseUrlState(new URLSearchParams(window.location.search));
+		const url = parseUrlState(new URLSearchParams(window.location.search), window.location.hash);
 		if (url.view) view = url.view;
 		getDataSource()
 			.then(async (source) => {
@@ -227,6 +353,13 @@
 				await tick();
 				ready = true;
 				prefetchPlaces(source);
+				if (source.hasAdmin1 && url.regions) setRegionsOn(true);
+				if (source.hasAdmin1 && url.regionRejected) regionsNote = noSuchRegion(url.regionRejected);
+				outlinesOk = allowsPrefetch(
+					(navigator as Navigator & { connection?: ConnectionLike }).connection
+				);
+				// a region link works on reload; a shared map view wins over zooming to the region
+				if (source.hasAdmin1 && url.region) selectRegion(url.region, { fly: !url.view });
 				if (url.at) {
 					// Name the place only if it is a places.json entry at that spot; a link can carry
 					// any text, so otherwise the panel shows the coordinates.
@@ -262,7 +395,15 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (e.key === 'Escape' && at && !(e.target instanceof HTMLInputElement)) closePanel();
+		if (e.key === 'Escape' && hasPanel && !(e.target instanceof HTMLInputElement)) closePanel();
+	}}
+	onhashchange={() => {
+		// someone edited the address bar: follow a region link, or close the panel when it went
+		const id = parseRegionHash(window.location.hash);
+		const bad = rejectedRegionHash(window.location.hash);
+		if (id && id !== regionId) selectRegion(id, { fly: true });
+		else if (bad) regionsNote = noSuchRegion(bad);
+		else if (!id && regionId) dropRegion();
 	}}
 />
 
@@ -277,7 +418,7 @@
 	<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />
 </svelte:head>
 
-<div class="stage" class:with-panel={!!at}>
+<div class="stage" class:with-panel={hasPanel}>
 	{#if manifest}
 		<MapView
 			bind:this={mapView}
@@ -288,10 +429,19 @@
 			attribution={ERA5_ATTRIBUTION}
 			onselect={(lon, lat) => select(lon, lat, null)}
 			onviewchange={(v) => (view = v)}
+			regions={regionsProp}
+			onregionselect={(id) => selectRegion(id, { fly: false })}
+			onregionsstatus={(status, detail) => {
+				outlineStatus = status;
+				if (status === 'error') {
+					regionsNote = `The state and province borders could not be loaded${detail ? `: ${detail}` : ''}.`;
+					regionsOn = false;
+				}
+			}}
 		/>
 	{/if}
 
-	<div class="overlay-top" class:hidden-mobile={!!at && panelExpanded}>
+	<div class="overlay-top" class:hidden-mobile={hasPanel && panelExpanded}>
 		<div class="controls" class:open={controlsOpen}>
 			<h1 class="intro">How likely is a white Christmas where you live?</h1>
 			<div class="search-row">
@@ -299,6 +449,9 @@
 					<PlaceSearch
 						loadPlaces={async () => (await (await getDataSource()).places()).places}
 						onpick={pickPlace}
+						regionsEnabled={hasRegions}
+						loadRegions={async () => (await getDataSource()).admin1Index()}
+						onpickregion={pickRegion}
 					/>
 				</div>
 				<button
@@ -428,6 +581,24 @@
 							</select>
 						</label>
 					</div>
+					{#if hasRegions}
+						<label class="region-toggle" class:checked={regionsOn}>
+							<input
+								type="checkbox"
+								checked={regionsOn}
+								data-testid="regions-toggle"
+								onchange={(e) => setRegionsOn(e.currentTarget.checked)}
+							/>
+							<span>States and provinces</span>
+						</label>
+						{#if regionsOn}
+							<p class="level-note" data-testid="regions-hint" aria-live="polite">
+								{indexLoading || outlineStatus === 'loading'
+									? 'Loading the borders…'
+									: 'Click a state or province for its details.'}
+							</p>
+						{/if}
+					{/if}
 					{#if levelNote}
 						<p class="level-note" data-testid="level-note">
 							<strong>{periods.find((p) => p.value === selection.period)?.label}</strong> global
@@ -437,13 +608,25 @@
 				</div>
 			{/if}
 		</div>
+		{#if regionsNote}
+			<p class="notice" role="status" data-testid="regions-note">
+				<span>{regionsNote}</span>
+				<button
+					type="button"
+					aria-label="Dismiss this message"
+					onclick={() => (regionsNote = null)}
+				>
+					×
+				</button>
+			</p>
+		{/if}
 		{#if fixture}
 			<p class="fixture" role="note">Fixture data: the values are fake, for development only.</p>
 		{/if}
 	</div>
 
 	{#if manifest}
-		<div class="overlay-legend" class:hidden-mobile={!!at}>
+		<div class="overlay-legend" class:hidden-mobile={hasPanel}>
 			<Legend
 				{layer}
 				{colormap}
@@ -463,6 +646,21 @@
 			{loading}
 			error={lookupError}
 			{label}
+			{selection}
+			expanded={panelExpanded}
+			onclose={closePanel}
+			ontoggle={() => (panelExpanded = !panelExpanded)}
+			ondefinition={(id) => setSelection({ definition: id })}
+		/>
+	{/if}
+
+	{#if manifest && regionRow && RegionPanel}
+		<RegionPanel
+			{manifest}
+			index={regionIndex}
+			row={regionRow}
+			country={regionCountry}
+			error={regionError}
 			{selection}
 			expanded={panelExpanded}
 			onclose={closePanel}
@@ -618,6 +816,53 @@
 		background: var(--surface);
 		border: 1px solid var(--line);
 		border-radius: 6px;
+	}
+	.region-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+		padding: 6px 4px 2px;
+		font-size: 0.86rem;
+		cursor: pointer;
+	}
+	.region-toggle input {
+		width: 18px;
+		height: 18px;
+		margin: 0;
+		accent-color: var(--accent);
+	}
+	.notice {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin: 8px 0 0;
+		padding: 8px 10px;
+		font-size: 0.85rem;
+		line-height: 1.35;
+		color: var(--text);
+		background: var(--surface);
+		border-left: 4px solid var(--warn);
+		border-radius: 8px;
+		box-shadow: var(--shadow);
+	}
+	.notice span {
+		flex: 1;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.notice button {
+		flex: none;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		font-size: 1.2rem;
+		line-height: 1;
+		color: var(--muted);
+		background: transparent;
+		border: 0;
+		border-radius: 6px;
+		cursor: pointer;
 	}
 	.fixture {
 		margin: 8px 0 0;

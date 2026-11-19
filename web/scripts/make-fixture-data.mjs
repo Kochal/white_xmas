@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Writes a small, valid, obviously FAKE dataset in the web data contract format
 // (manifest.json, tiles/*.pmtiles, points/, proj/, places.json, regions.json)
-// to web/fixtures/data/. Usage: node scripts/make-fixture-data.mjs [--no-projections] [--out DIR]
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+// to web/fixtures/data/. Usage: node scripts/make-fixture-data.mjs [--no-projections] [--no-admin1] [--out DIR]
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { gzipSync } from 'node:zlib';
 import {
@@ -19,6 +19,7 @@ import { TileType, writePmtiles } from './lib/pmtiles-writer.mjs';
 
 const args = process.argv.slice(2);
 const withProjections = !args.includes('--no-projections');
+const withAdmin1 = !args.includes('--no-admin1');
 const outIdx = args.indexOf('--out');
 const OUT = path.resolve(
 	outIdx >= 0 ? args[outIdx + 1] : path.join(import.meta.dirname, '..', 'fixtures', 'data')
@@ -692,6 +693,24 @@ writeFileSync(
 );
 console.log(`  regions.json  ${regionRows.length} regions`);
 
+// admin1/: states and provinces (contract v1.6). The pipeline's own sample fixture
+// (tests/fixtures/admin1_sample, clearly fake values, real Natural Earth outlines for a few
+// countries) is copied as is, so the site is tested against the pipeline's exact format.
+const ADMIN1_SAMPLE = path.resolve(
+	import.meta.dirname,
+	'..',
+	'..',
+	'tests',
+	'fixtures',
+	'admin1_sample',
+	'admin1'
+);
+const hasAdmin1 = withAdmin1 && existsSync(path.join(ADMIN1_SAMPLE, 'index.json'));
+if (hasAdmin1) {
+	cpSync(ADMIN1_SAMPLE, path.join(OUT, 'admin1'), { recursive: true });
+	console.log('  admin1/  copied from tests/fixtures/admin1_sample');
+}
+
 // manifest.json
 const manifest = {
 	schema_version: 1,
@@ -755,7 +774,20 @@ const manifest = {
 			}
 		: { available: false },
 	places: 'places.json',
-	regions: 'regions.json'
+	regions: 'regions.json',
+	...(hasAdmin1
+		? {
+				admin1: {
+					available: true,
+					format: 'wx-admin1-v1',
+					index: 'admin1/index.json',
+					boundaries: 'admin1/boundaries.json',
+					country: 'admin1/c/{country}.json',
+					data_version: 'sample',
+					build_hash: 'sample'
+				}
+			}
+		: {})
 };
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, '\t'));
 console.log(`  manifest.json  ${layers.length} layers, ${windows.length} windows`);
