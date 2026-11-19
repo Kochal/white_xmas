@@ -20,5 +20,9 @@ export const load: PageServerLoad = () => {
 	// The first-level heading becomes the page title; drop it from the body.
 	const title = /^#\s+(.+)$/m.exec(md)?.[1]?.trim() ?? null;
 	const body = title ? md.replace(/^#\s+.+$/m, '') : md;
-	return { html: marked.parse(body, { async: false, gfm: true }) as string, title };
+	const html = (marked.parse(body, { async: false, gfm: true }) as string)
+		// wide tables scroll inside their own box instead of widening the page on phones
+		.replace(/<table>/g, '<div class="table-wrap"><table>')
+		.replace(/<\/table>/g, '</table></div>');
+	return { html, title };
 };

@@ -95,9 +95,23 @@ a {
 }
 
 /* Markdown tables (methodology) aren't wrapped, so let them scroll on their own on phones. */
-article.prose > table {
-	display: block;
-	overflow-x: auto;
+/* Rendered Markdown (methodology): nothing may widen the page on a phone. Tables are wrapped
+   in .table-wrap at build time; code blocks scroll; long URLs and code wrap anywhere. */
+.prose .table-wrap {
+	margin: 1rem 0;
+}
+.prose a,
+.prose code {
+	overflow-wrap: anywhere;
+}
+.prose pre code {
+	overflow-wrap: normal;
+}
+.prose p,
+.prose li,
+.prose td,
+.prose th {
+	overflow-wrap: break-word;
 }
 
 .prose img {

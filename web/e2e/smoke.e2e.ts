@@ -78,6 +78,11 @@ test('no horizontal scroll at 360 px', async ({ page }) => {
 	await page.setViewportSize({ width: 360, height: 740 });
 	for (const path of ['/', '/rankings/', '/methodology/', '/downloads/', '/about/']) {
 		await page.goto(path);
+		// a wide font, so a run on Windows/macOS is as strict as CI's Linux fonts
+		await page.addStyleTag({
+			content: '* { font-family: Verdana, "DejaVu Sans", sans-serif !important; }'
+		});
+		await page.waitForTimeout(300);
 		const [scroll, inner] = await page.evaluate(() => [
 			document.documentElement.scrollWidth,
 			window.innerWidth
