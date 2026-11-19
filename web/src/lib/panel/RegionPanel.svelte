@@ -245,18 +245,16 @@
 				<p class="muted small" data-testid="trend-note">
 					The slope is a straight line through the yearly shares.
 					{#if trend.likely}
-						It counts as a likely trend because
-						{#if trend.adjusted}
-							the Mann–Kendall test, adjusted for testing thousands of regions at once
-							(Benjamini–Hochberg), gives p &lt; {country.trend_alpha}.
-						{:else}
-							a Mann–Kendall test gives p &lt; {country.trend_alpha}. Every region is tested on its
-							own, so about 1 region in 10 with no real change at all still passes.
-						{/if}
+						It counts as a likely trend because a Mann–Kendall test, adjusted for testing thousands
+						of regions at once (Benjamini–Hochberg), gives {formatP(trend.q!, 'q')}, below {country.trend_alpha}.
+					{:else if trend.q !== null}
+						No clear trend: after adjusting for testing thousands of regions at once, the
+						Mann–Kendall test gives {formatP(trend.q, 'q')}, so the line is within what luck from
+						year to year produces.
 					{:else}
-						No clear trend: the line is within what luck from year to year produces
-						{#if !trend.adjusted && trend.p !== null}({formatP(trend.p)}){/if}.
+						No clear trend: the series has no year-to-year variation to test, or too little.
 					{/if}
+					{#if trend.p !== null}Tested on its own, this region gives {formatP(trend.p)}.{/if}
 					Read it as a direction, not a forecast.
 				</p>
 			{/if}

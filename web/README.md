@@ -52,7 +52,7 @@ Optional (the manifest lists `admin1`); everything loads lazily, so the first lo
 
 | What                      | Loaded when                                                                  | Size (gzip) |
 | ------------------------- | ---------------------------------------------------------------------------- | ----------- |
-| `admin1/index.json`       | the layer is switched on, the search box gets focus, the rankings page opens | ~200 kB     |
+| `admin1/index.json`       | the layer is switched on, the search box gets focus, the rankings page opens | ~130 kB     |
 | `admin1/boundaries.json`  | the layer is switched on, or a `#/region/<id>` link opens                    | ~1.4 MB     |
 | `admin1/c/<country>.json` | a region of that country is opened                                           | ≤ ~150 kB   |
 

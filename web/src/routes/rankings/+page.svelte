@@ -14,6 +14,7 @@
 		countryOptions,
 		isSmall,
 		rankRegions,
+		rankSummary,
 		type RegionMetric
 	} from '#lib/admin1-rankings.ts';
 	import { declines, snowiest } from '#lib/rankings.ts';
@@ -67,6 +68,12 @@
 		return rankRegions(admin1.rows, metric, { country: adminCountry || undefined }, ADMIN_LIMIT);
 	});
 	const searching = $derived(adminQuery.trim().length >= 2);
+	/** What the list hides: how many regions share the top value, and how many never had snow. */
+	const summary = $derived(
+		admin1 && !searching
+			? rankSummary(admin1.rows, metric, { country: adminCountry || undefined })
+			: null
+	);
 	const adminHeading = $derived(
 		searching
 			? 'Matching states and provinces'
@@ -95,9 +102,10 @@
 		}
 	})();
 
-	/** "Germany · low resolution": the country is left out inside a country list. */
+	/** "State · Germany · low resolution": the type tells apart a city and its province of one name. */
 	function regionMeta(r: RegionRow): string {
 		return [
+			r.type,
 			!adminCountry || searching ? (admin1?.countries[r.country]?.name ?? r.country) : '',
 			isSmall(r) ? 'low resolution' : ''
 		]
@@ -264,6 +272,24 @@
 				</label>
 			</div>
 			<h3 id="admin-ranking">{adminHeading}, {nowLabel}</h3>
+			{#if summary && (metric !== 'decline' || summary.never > 0)}
+				<p class="muted small" data-testid="rank-summary">
+					{#if summary.top && summary.top.count > 1}
+						{summary.top.count.toLocaleString('en')} regions are at {summary.top.value}% (rounded){summary.total >
+						ADMIN_LIMIT
+							? `; the ${ADMIN_LIMIT} listed come first`
+							: ''}.
+					{/if}
+					{#if summary.never > 0}
+						{summary.never.toLocaleString('en')} more regions never had snow on Christmas Day since
+						{manifest?.years.first ?? 1950} (0%) and are not listed.
+					{/if}
+					{#if metric !== 'decline'}
+						Ties are ordered by the whole record ({winLabel(meta?.windows.p_full)}), then by
+						{thenLabel}.
+					{/if}
+				</p>
+			{/if}
 			<div class="table-wrap">
 				<table aria-labelledby="admin-ranking" data-testid="region-ranking">
 					<thead>
@@ -305,7 +331,7 @@
 									{searching
 										? 'No state or province matches.'
 										: metric === 'decline'
-											? 'No region had a white Christmas in 1 year in 10 and lost chance.'
+											? 'No region that had a white Christmas in at least 1 year in 10 lost chance.'
 											: 'No regions with values here.'}
 								</td>
 							</tr>

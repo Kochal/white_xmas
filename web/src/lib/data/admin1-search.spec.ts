@@ -50,6 +50,25 @@ const COUNTRIES = {
 const ALPHAS = ['One', 'Two', 'Three'].map((n, k) => row(`AL-${k}`, `Alpha ${n}`, 'DEU'));
 const ids = (q: string, limit = 4) => searchRegions(ROWS, COUNTRIES, q, limit).map((h) => h.row.id);
 
+describe('searchRegions: local names', () => {
+	const local = [
+		{ ...row('DE-BY', 'Bavaria', 'DEU'), name_local: 'Bayern' },
+		{ ...row('AT-7', 'Tyrol', 'AUT'), name_local: 'Tirol' },
+		{ ...row('IT-25', 'Lombardy', 'ITA'), name_local: 'Lombardia' }
+	];
+	it('finds Bayern, Tirol and Lombardia, with the same scoring as the English name', () => {
+		const find = (q: string) => searchRegions(local, COUNTRIES, q, 3).map((h) => h.row.id);
+		expect(find('bayern')).toEqual(['DE-BY']);
+		expect(find('Tirol')).toEqual(['AT-7']);
+		expect(find('lombard')).toEqual(['IT-25']); // prefix of both names
+		const hit = searchRegions(local, COUNTRIES, 'bayern', 1)[0];
+		expect(hit.matched).toBe('Bayern');
+		expect(searchRegions(local, COUNTRIES, 'bavaria', 1)[0].matched).toBe('Bavaria');
+		// an exact local name scores like an exact English name
+		expect(hit.score).toBeCloseTo(searchRegions(local, COUNTRIES, 'bavaria', 1)[0].score);
+	});
+});
+
 describe('searchRegions', () => {
 	it('finds by exact name, prefix and ignoring case and accents', () => {
 		expect(ids('bavaria')).toEqual(['DE-BY']);

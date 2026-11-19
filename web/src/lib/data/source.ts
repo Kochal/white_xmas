@@ -107,7 +107,7 @@ export class DataSource {
 		return !!this.manifest.admin1?.available;
 	}
 
-	/** States and provinces, one row per region (~200 kB gzipped); loaded on first use. */
+	/** States and provinces, one row per region (~130 kB gzipped); loaded on first use. */
 	admin1Index(): Promise<Admin1Index> {
 		const ref = this.manifest.admin1;
 		if (!ref) return Promise.reject(new Error('states and provinces are not in this dataset'));

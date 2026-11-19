@@ -269,13 +269,22 @@ test('click a state: the region panel shows the numbers and a deep link', async 
 
 	await expect(panel.getByRole('heading', { level: 2 })).toHaveText(/\S/);
 	await expect(panel.getByTestId('headline')).toHaveText(/\d+%/);
-	await expect(panel.getByTestId('pop-weighted')).toContainText(/Where people live|No place/);
+	await expect(panel.getByTestId('pop-weighted')).toContainText(
+		/places where people live|No town or city/
+	);
+	// the headline says what the number is (S8), and the borders switch is the user's, not forced
+	await expect(panel).toContainText(/of the land in .+ has snow/);
 	await expect(panel.getByTestId('region-series').getByRole('img')).toHaveAttribute(
 		'aria-label',
 		/1950 to 2025/
 	);
-	await expect(panel.getByTestId('region-trend')).toContainText('pp per decade');
-	await expect(panel.getByTestId('trend-significance')).toContainText(/clear trend/);
+	await expect(panel.getByTestId('trend-significance')).toContainText(
+		/likely trend|no clear trend/
+	);
+	// the main line carries no p-value; the note explains the adjusted test
+	await expect(panel.getByTestId('region-trend')).not.toContainText(/p [=<]/);
+	await expect(panel.getByTestId('trend-note')).toContainText('Benjamini');
+	await expect(panel.getByTestId('region-trend')).toContainText('percentage points per decade');
 	await expect(panel.getByTestId('region-spread')).toContainText('Inside the region');
 	await expect(panel.getByRole('heading', { name: 'By decade' })).toBeVisible();
 	await expect(panel.getByRole('heading', { name: 'In a warmer world' })).toBeVisible();
@@ -311,7 +320,8 @@ test('#/region/<id> opens the region, also after a reload, and a bad id says so'
 
 	await page.goto('/#/region/XX-NOPE');
 	await expect(page.getByTestId('region-panel')).toHaveCount(0);
-	await openControls(page);
+	// shown outside the layer controls, so a phone user sees it too
+	await expect(page.getByTestId('regions-note')).toBeVisible();
 	await expect(page.getByTestId('regions-note')).toContainText('no state or province');
 });
 
@@ -352,7 +362,10 @@ test('search finds states and provinces next to places', async ({ page }) => {
 	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
 	const search = page.getByRole('combobox', { name: 'Search for a place' });
 	await search.fill('Bavaria');
-	const option = page.getByRole('option').filter({ hasText: 'State or province' }).first();
+	const option = page
+		.getByRole('option')
+		.filter({ has: page.getByTestId('region-type') })
+		.first();
 	await expect(option).toContainText('Bavaria');
 	await expect(option).toContainText('Germany');
 	await option.click();
@@ -423,4 +436,89 @@ test('region panel stays within 360 px', async ({ page }) => {
 		.locator('#panel-body')
 		.evaluate((el) => [el.scrollWidth, el.clientWidth]);
 	expect(pw).toBeLessThanOrEqual(cw);
+});
+
+test('a region link with a long id (M1) or an id the parser rejects says there is no such region', async ({
+	page
+}) => {
+	// 25 characters, a valid pattern, not in the data
+	await page.goto('/#/region/SVN-JUGOVZHODNA-SLOVENIJA');
+	await expect(page.getByTestId('regions-note')).toContainText('no state or province');
+	await expect(page.getByTestId('region-panel')).toHaveCount(0);
+
+	// longer than any id: the parser refuses it, and the page must still say so
+	await page.goto('/#/region/' + 'A'.repeat(60));
+	await expect(page.getByTestId('regions-note')).toContainText('no state or province');
+	// the note can be dismissed
+	await page.getByRole('button', { name: 'Dismiss this message' }).click();
+	await expect(page.getByTestId('regions-note')).toHaveCount(0);
+});
+
+test('opening a region does not switch the borders layer on', async ({ page }) => {
+	await page.goto('/#/region/DE-BY');
+	await expect(page.getByTestId('region-panel').getByTestId('headline')).toBeVisible();
+	await expect(page).not.toHaveURL(/regions=1/);
+	await openControls(page);
+	await expect(page.getByTestId('regions-toggle')).not.toBeChecked();
+});
+
+test('when the region data cannot be loaded the page says so, also on phones', async ({ page }) => {
+	await page.route('**/admin1/**', (route) => route.abort());
+	// a deep link: the index fails, so no panel, but a visible message and no page error
+	const errors: string[] = [];
+	page.on('pageerror', (e) => errors.push(e.message));
+	await page.goto('/#/region/DE-BY');
+	const note = page.getByTestId('regions-note');
+	await expect(note).toBeVisible({ timeout: 15_000 });
+	await expect(note).toContainText('could not be loaded');
+	await expect(page.getByTestId('region-panel')).toHaveCount(0);
+	// the rest of the site keeps working
+	const search = page.getByRole('combobox', { name: 'Search for a place' });
+	await search.fill('Munich');
+	await expect(page.getByRole('option').first()).toContainText('Munich');
+	expect(errors).toEqual([]);
+});
+
+test('a bad region id with the region data blocked still shows a message', async ({ page }) => {
+	await page.route('**/admin1/**', (route) => route.abort());
+	await page.goto('/#/region/XX-NOPE');
+	await expect(page.getByTestId('regions-note')).toBeVisible({ timeout: 15_000 });
+});
+
+test('switching the borders on with the outlines blocked reports it and switches back off', async ({
+	page
+}) => {
+	await page.route('**/admin1/boundaries.json', (route) => route.abort());
+	await page.goto('/');
+	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+	await openControls(page);
+	await page.getByTestId('regions-toggle').check();
+	await closeControls(page);
+	await expect(page.getByTestId('regions-note')).toContainText('borders could not be loaded', {
+		timeout: 20_000
+	});
+	await openControls(page);
+	await expect(page.getByTestId('regions-toggle')).not.toBeChecked();
+});
+
+test('rankings: ties are explained, the type is shown, Antarctica is not ranked', async ({
+	page
+}) => {
+	await page.goto('/rankings/');
+	const table = page.getByTestId('region-ranking');
+	await expect(table).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId('rank-summary')).toContainText('Ties are ordered by');
+	await page.getByTestId('region-country').selectOption('DEU');
+	// the type next to the country-less list: "State"
+	await expect(table.locator('tbody tr').first()).toContainText('State');
+	await page.getByTestId('region-country').selectOption('');
+	await page.getByRole('radio', { name: 'Biggest decline' }).check();
+	await expect(page.getByTestId('rank-summary')).toHaveCount(0);
+});
+
+test('search shows the type of a region next to its name', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+	await page.getByRole('combobox', { name: 'Search for a place' }).fill('Bavaria');
+	await expect(page.getByTestId('region-type').first()).toHaveText('State');
 });

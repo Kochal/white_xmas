@@ -11,7 +11,7 @@
 		onpick: (place: Place) => void;
 		/** States and provinces (contract v1.6): when on, they are searched too. */
 		regionsEnabled?: boolean;
-		/** Loads the region index on first focus (never before: it is ~200 kB). */
+		/** Loads the region index on first focus (never before: it is ~130 kB gzipped). */
 		loadRegions?: () => Promise<Admin1Index>;
 		onpickregion?: (row: RegionRow) => void;
 	}
@@ -190,9 +190,14 @@
 					}}
 				>
 					{#if h.kind === 'region'}
-						<span class="name">{h.hit.row.name}</span>
+						<span class="name">
+							{h.hit.row.name}{#if h.hit.matched !== h.hit.row.name}
+								<span class="muted"> ({h.hit.matched})</span>{/if}
+						</span>
 						<span class="where muted">
-							<span class="tag">State or province</span>
+							<span class="tag" data-testid="region-type">
+								{h.hit.row.type || 'State or province'}
+							</span>
 							{h.hit.countryName}
 						</span>
 						{#if h.hit.row.p_now !== null}

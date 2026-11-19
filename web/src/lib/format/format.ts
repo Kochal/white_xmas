@@ -35,10 +35,10 @@ export function formatPp(v: number | null, unit = 'pp', digits = 1): string {
  * A p-value for reading: "p = 0.03", "p = 0.004", "p < 0.001". Truncated, never rounded up, so
  * a value just under a threshold such as 0.1 can't print as the threshold itself.
  */
-export function formatP(p: number): string {
-	if (p < 0.001) return 'p < 0.001';
+export function formatP(p: number, symbol = 'p'): string {
+	if (p < 0.001) return `${symbol} < 0.001`;
 	const digits = p < 0.01 ? 1000 : 100;
-	return `p = ${(Math.floor(p * digits + 1e-9) / digits).toFixed(p < 0.01 ? 3 : 2)}`;
+	return `${symbol} = ${(Math.floor(p * digits + 1e-9) / digits).toFixed(p < 0.01 ? 3 : 2)}`;
 }
 
 export function signed(v: number, digits = 1): string {

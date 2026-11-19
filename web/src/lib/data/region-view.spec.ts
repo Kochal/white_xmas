@@ -138,27 +138,21 @@ describe('windows', () => {
 });
 
 describe('trend and series', () => {
-	it('calls a trend likely when p is below the data alpha (no adjusted value)', () => {
-		const s = region.stats.calibrated.christmas_day;
-		expect(trendInfo(s, 0.1)).toEqual({
-			perDecade: -1.5,
-			p: 0.03,
-			q: null,
-			adjusted: false,
-			likely: true
-		});
-		expect(trendInfo({ ...s, trend_p: 0.1 }, 0.1)?.likely).toBe(false);
-		expect(trendInfo({ ...s, trend_p: null }, 0.1)?.likely).toBe(false);
+	it('calls a trend likely when the adjusted q is below the data alpha', () => {
+		const s = { ...region.stats.calibrated.christmas_day, trend_q: 0.04 };
+		expect(trendInfo(s, 0.1)).toEqual({ perDecade: -1.5, p: 0.03, q: 0.04, likely: true });
+		expect(trendInfo({ ...s, trend_q: 0.1 }, 0.1)?.likely).toBe(false);
 		expect(trendInfo({ ...s, trend: null }, 0.1)).toBeNull();
 	});
 
-	it('uses the Benjamini-Hochberg q instead of p when the data has it', () => {
-		const s = region.stats.calibrated.christmas_day;
-		// clear on its own (p 0.03) but not after adjusting for thousands of regions
-		const unlikely = trendInfo({ ...s, trend_q: 0.4 }, 0.1)!;
-		expect([unlikely.likely, unlikely.adjusted, unlikely.q]).toEqual([false, true, 0.4]);
-		const likely = trendInfo({ ...s, trend_p: 0.0004, trend_q: 0.02 }, 0.1)!;
-		expect([likely.likely, likely.adjusted]).toEqual([true, true]);
+	it('does not call a trend clear on p alone: p 0.009 with q 0.15 is not clear (Tyrol)', () => {
+		const s = { ...region.stats.calibrated.christmas_day, trend_p: 0.009, trend_q: 0.15 };
+		expect(trendInfo(s, 0.1)?.likely).toBe(false);
+	});
+
+	it('a constant series has no q and no trend, whatever its p', () => {
+		const s = { ...region.stats.calibrated.christmas_day, trend_p: 0.01, trend_q: null };
+		expect(trendInfo(s, 0.1)).toMatchObject({ q: null, likely: false });
 	});
 
 	it('fits a line through a yearly series, skipping gaps', () => {

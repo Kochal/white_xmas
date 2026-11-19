@@ -71,28 +71,24 @@ export function decadeBars(
 
 export interface TrendInfo {
 	perDecade: number;
-	/** The test's p-value (Mann-Kendall) of this region alone. */
+	/** The test's p-value (Mann-Kendall) of this region alone: detail only. */
 	p: number | null;
-	/** Benjamini-Hochberg adjusted p over all regions, when the data has it. */
+	/** Benjamini-Hochberg adjusted p over all testable regions; null for a constant series. */
 	q: number | null;
-	/** True when the likely-trend call rests on q, not on the single-region p. */
-	adjusted: boolean;
 	/**
-	 * A likely trend: q (else p) is below the data's alpha. It is a per-region test, so about
-	 * one region in ten without any real change passes it when only p is available.
+	 * A likely trend: q is below the data's alpha (contract v1.6). q already accounts for
+	 * testing thousands of regions at once; a constant series has no q and no trend.
 	 */
 	likely: boolean;
 }
 
 export function trendInfo(stats: RegionStats, alpha: number): TrendInfo | null {
 	if (stats.trend === null) return null;
-	const basis = stats.trend_q ?? stats.trend_p;
 	return {
 		perDecade: stats.trend,
 		p: stats.trend_p,
 		q: stats.trend_q,
-		adjusted: stats.trend_q !== null,
-		likely: basis !== null && basis < alpha
+		likely: stats.trend_q !== null && stats.trend_q < alpha
 	};
 }
 

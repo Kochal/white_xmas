@@ -57,5 +57,6 @@ describe('formatP', () => {
 		expect(formatP(0.004)).toBe('p = 0.004');
 		expect(formatP(0.0004)).toBe('p < 0.001');
 		expect(formatP(0)).toBe('p < 0.001');
+		expect(formatP(0.153, 'q')).toBe('q = 0.15');
 	});
 });
