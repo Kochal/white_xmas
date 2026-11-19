@@ -28,7 +28,7 @@ try:  # the projections package lives on its own branch until the two meet
     from ..projections.export import manifest_fragment
 except ImportError:  # pragma: no cover - depends on which branch is checked out
 
-    def manifest_fragment(paths: DataPaths) -> dict | None:
+    def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | None:
         return None
 
 
@@ -188,8 +188,9 @@ def export_all(
     full = cfg.full_window().id
 
     # Projection layers (and the manifest's projections block) come from the projections
-    # export, which renders its own tiles into web_out; we only list and keep them.
-    frag = manifest_fragment(paths)
+    # export. Given web_out, it stages its tiles and proj/ point files into that folder and
+    # returns None if they are missing, so this export alone yields a complete bundle.
+    frag = manifest_fragment(paths, web_out)
 
     # 1 · raster layers -------------------------------------------------------------
     layers = plan_layers(cfg, decades_for_all=bool(ex.get("decades_for_all_definitions", True)))

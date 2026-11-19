@@ -87,4 +87,4 @@ def test_projection_hook_is_inert_without_projections(tmp_path):
     from whitexmas.export import manifest_fragment
     from whitexmas.paths import DataPaths
 
-    assert manifest_fragment(DataPaths(tmp_path)) is None
+    assert manifest_fragment(DataPaths(tmp_path), tmp_path / "web") is None
