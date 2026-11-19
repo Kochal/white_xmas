@@ -252,7 +252,10 @@ files that are already identical by size and SHA-256, and removing point tiles t
 longer lists), checks that every layer URL and `proj/index.json` with all its tiles are there,
 and only then returns the layers and the `projections` block. If the staged set is missing or
 incomplete it returns None, so the manifest keeps `projections.available: false`; it never lists
-layers whose files are not in the web-out. A build on
+layers whose files are not in the web-out. The fragment also records the change `estimator`
+(not copied into the manifest, so the contract is unchanged); a fragment from another estimator,
+or with none (data-2025.1), makes `manifest_fragment()` raise instead of shipping out-of-date
+numbers, and the log names the folder that was staged. A build on
 the placeholder baseline (no `interim/indicators.zarr` yet) refuses to export unless
 `--allow-placeholder` is passed, and even then never into `web/static/data` (that folder is
 bundled and published), so a preview needs its own `--web-out`. A placeholder preview writes

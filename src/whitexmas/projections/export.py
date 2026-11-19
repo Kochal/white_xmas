@@ -39,6 +39,7 @@ from pathlib import Path
 import numpy as np
 
 from ..paths import DataPaths
+from .changes import ESTIMATOR
 from .cmip6 import load_plan
 from .settings import ProjPaths
 
@@ -278,6 +279,10 @@ def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | N
 
     Without ``web_out`` (pipeline hooks older than D-16): returns the fragment unverified and
     logs a warning.
+
+    Raises when the fragment was made with another change estimator than the current one (or
+    records none, as data-2025.1 does): its numbers would silently ship in a new bundle. Build
+    from the folder that holds the current export (``WHITEXMAS_PROJ_VARIANT``) or re-export.
     """
     pp = ProjPaths.from_data(paths)
     f = pp.products / "manifest_fragment.json"
@@ -286,6 +291,13 @@ def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | N
     frag = json.loads(f.read_text(encoding="utf-8"))
     if frag.get("placeholder"):
         return None
+    if frag.get("estimator") != ESTIMATOR:
+        raise RuntimeError(
+            f"{f} was made with the change estimator {frag.get('estimator')!r}, not "
+            f"{ESTIMATOR!r}: its projections are out of date. Re-export them "
+            "(`whitexmas projections export`) or point WHITEXMAS_PROJ_VARIANT at the folder "
+            "with the current export."
+        )
     out = {"layers": frag["layers"], "projections": frag["projections"]}
     if web_out is None:
         log.warning(
@@ -296,6 +308,7 @@ def manifest_fragment(paths: DataPaths, web_out: Path | None = None) -> dict | N
     if not stage_files(pp.staging, frag, Path(web_out)):
         log.warning("projections left out of the manifest: staged files incomplete")
         return None
+    log.info("projections: staged %s (estimator %s) into %s", pp.staging, ESTIMATOR, web_out)
     return out
 
 
@@ -458,6 +471,8 @@ def export_projections(
     log.info("wx-proj-v1: %d tiles, %.1f MB", pts["tiles"], pts["bytes"] / 1e6)
     frag = {
         "placeholder": placeholder,
+        # not copied into the manifest (contract unchanged); manifest_fragment() checks it
+        "estimator": ESTIMATOR,
         "layers": plan_layers(defs, gwls, maxzoom, threshold=default_tid),
         "threshold": {"id": tid or default_tid, "cm": tcm},
         "projections": projections_block(
