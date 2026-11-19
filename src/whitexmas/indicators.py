@@ -159,7 +159,7 @@ def fingerprint(cfg, cube_fp: str) -> str:
     return h.hexdigest()[:16]
 
 
-def compute_all(cfg, paths, force: bool = False, band: int = 150):
+def compute_all(cfg, paths, force: bool = False, band: int = 50):
     """Stream over latitude bands of the cube and write ``indicators.zarr``."""
     import json
     import logging
