@@ -44,12 +44,13 @@ it gives a white Christmas Day about **20 percentage points too often** across 8
 72 % against 39 %; see the station check below). ERA5-Land carries too much
 thin, patchy snow in the lowlands, a bias also reported in the scientific literature.
 
-So the **default threshold is 5 cm in ERA5-Land**, the whole-centimetre value that best matches
-"at least 1 cm measured at a weather station". You can switch to the **raw 1 cm** view, which is
-ERA5-Land exactly as published. We show both because the calibrated view is the better estimate of
-what you would have seen outside, while the raw view is the unadjusted reanalysis that other
-studies and datasets use, and the difference between the two is itself a measure of the
-uncertainty. Future projections use the calibrated threshold only.
+So the **default threshold is 5 cm in ERA5-Land**: compared with "at least 1 cm measured at a
+weather station", it is the whole-centimetre value with the smallest typical difference per station
+(by the mean alone, 6 cm is marginally closer; see the station check). You can switch to the
+**raw 1 cm** view, which is ERA5-Land exactly as published. We show both because the calibrated
+view is the better estimate of what you would have seen outside, while the raw view is the
+unadjusted reanalysis that other studies and datasets use, and the difference between the two
+is itself a measure of the uncertainty. Future projections use the calibrated threshold only.
 
 ### The three rules
 
@@ -123,7 +124,7 @@ Of 3,504 boxes with candidates, 1,563 have a station that passes the quality rul
 | --- | --- | --- |
 | ≥ 1 cm (raw) | +20.2 pp | 20.3 pp |
 | ≥ 4 cm | +4.7 pp | 8.7 pp |
-| **≥ 5 cm (default)** | **+1.6 pp** (−1.2 to +5.1) | **8.6 pp** |
+| **≥ 5 cm (default)** | **+1.6 pp** (−1.2 to +5.0) | **8.6 pp** |
 | ≥ 6 cm | −1.2 pp | 9.3 pp |
 
 Positive means ERA5-Land is white more often than the station; the typical size is the average
@@ -140,15 +141,15 @@ At 5 cm, ERA5-Land and the station agree on white or green in 86.5 % of station-
 (8.6 pp, against 8.7 at 4 cm and 9.3 at 6 cm), and its median difference is exactly 0 (−2.6 pp at
 6 cm). The mean is pulled up by the Rockies and the Pacific side of North America, where ERA5-Land
 is far too snowy. Counting every region once instead of every station, 5 cm is +3.2 pp (+0.9 to
-+5.3) too snowy and the zero point lies at 6.2 cm (5.4 to 7.2); that interval holds the six regions
++5.3) too snowy and the zero point lies at 6.2 cm (5.3 to 7.2); that interval holds the six regions
 themselves fixed. Two more checks point towards 5 cm or lower:
 
 - **Stations below their cell.** The difference is larger where the cell's mean elevation lies
-  above the station: by about **7 pp per 100 m** (4 to 10 pp) among stations of the same region
-  within the 200 m limit. That is what one expects when a town in a valley shares a cell with
+  above the station: by about **7 pp per 100 m** (4.5 to 9.9 pp; this interval resamples 10°
+  blocks of stations only, not years) among stations of the same region within the 200 m limit. That is what one expects when a town in a valley shares a cell with
   higher, snowier ground, but it is a correlation, and it is lopsided: the few stations that lie
   above their cell are not too green. For the 611 stations within 50 m of their cell's elevation,
-  the difference at 5 cm is −1.4 pp (−3.7 to +1.2) and the zero point lies at 4.5 cm (3.9 to 5.5):
+  the difference at 5 cm is −1.4 pp (−3.8 to +1.3) and the zero point lies at 4.5 cm (3.9 to 5.5):
   between 4 and 5 cm (4 cm has the smaller typical difference, 6.4 against 6.9 pp).
 - **Out of sample** (below), re-fitting a single threshold does not beat the fixed 5 cm.
 
@@ -167,12 +168,12 @@ stations within 50 m of their cell's elevation.
 
 | Region (stations) | All stations | At cell elevation |
 | --- | --- | --- |
-| Eastern North America (306) | −0.8 (−4.3 to +2.9) | −2.4 (259) |
-| Great Plains & Prairies (197) | −1.7 (−5.3 to +3.1) | −2.4 (172) |
+| Eastern North America (306) | −0.8 (−4.2 to +2.8) | −2.4 (259) |
+| Great Plains & Prairies (197) | −1.7 (−5.1 to +2.9) | −2.4 (172) |
 | Rockies & Intermountain West (106) | **+10.7** (+6.0 to +16.9) | +11.3 (43) |
-| Western & Central Europe (78) | **−5.3** (−9.3 to −0.7) | −6.6 (68) |
-| Pacific North America (70) | **+12.7** (+8.8 to +17.8) | +6.1 (32) |
-| Nordic countries (57) | +3.5 (−4.9 to +9.4) | −3.5 (31) |
+| Western & Central Europe (78) | **−5.3** (−9.5 to −0.5) | −6.6 (68) |
+| Pacific North America (70) | **+12.7** (+8.7 to +17.8) | +6.1 (32) |
+| Nordic countries (57) | +3.5 (−5.6 to +9.2) | −3.5 (31) |
 
 - **Consistent:** the eastern half of North America and the Great Plains and Prairies, where most
   of the stations are (zero points between 4.5 and 4.7 cm); among their stations at cell
@@ -215,7 +216,7 @@ stations within 50 m of their cell's elevation.
   Tibetan Plateau, the Middle East or the Arctic islands. Of the 827 stations, 684 are in the
   United States and Canada.
 - **High mountains** are tested only in the Rockies: 56 stations where the station or its cell lies
-  at or above 1,500 m; ERA5-Land at 5 cm is 11 pp too snowy there (8 to 16).
+  at or above 1,500 m; ERA5-Land at 5 cm is 11 pp too snowy there (7.5 to 15.8).
 - **The Southern Hemisphere** is out of scope: 25 December is midsummer there.
 - Other national archives with daily snow depth and open licences could fill some gaps (Finland's
   FMI, Japan's JMA, NSIDC's historical daily snow depth for the former Soviet Union up to 1995,
@@ -252,8 +253,10 @@ comes mostly from GSOD are left out of it: their green years would not have been
 The station values come from GHCN-Daily, which NOAA distributes without use restrictions; some of
 them reached GHCN from national services or from ECA&D, and the statistics here rely on GHCN's
 redistribution terms. GHCN-Daily changes daily, so a fresh run on another day differs slightly:
-`stations.json` records the examined station ids and checksums of the metadata files, and
-`stations.auto.pin` reruns on exactly those stations. The downloaded station files take about
+`stations.json` records the examined station ids (including those tried only for the
+elevation sensitivity row) and checksums of the metadata files. `stations.auto.pin` reruns on
+exactly those stations, keeps the candidate counts of the pinned run, and warns when the metadata
+files have changed since. The downloaded station files take about
 2.6 GB.
 
 ## Periods
@@ -318,7 +321,8 @@ nearest land cell within two cells (about 20 km); places with no land cell that 
   station check, Sion in the Rhône valley sits under a cell almost 1,000 m higher, and ERA5-Land
   calls every Christmas there white. Across the station check, stations lying below their cell's
   mean elevation tend to be too snowy, by about 7 percentage points per 100 m.
-- **The calibration is an average.** 5 cm matches the stations on average; at a single place the
+- **The calibration is an average.** 5 cm matches on average over stations, within
+  the uncertainty; counting every region once it is about 3 pp too snowy. At a single place the
   difference is typically about 9 percentage points either way. ERA5-Land at 5 cm is still too
   snowy in western North America and too green in the lowlands of western and central Europe, and
   the calibration is untested for most of Eurasia (see the station check).
