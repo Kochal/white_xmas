@@ -1,6 +1,7 @@
 # Future projections: white Christmas at +1.5, +2 and +3 °C
 
-Status: **Phase 1 done; Phase 2 code complete, validation pending the ERA5-Land snow cube.**
+Status: **Phase 1 done; Phase 2 built and validated on 1961–1990; final validation and the real
+baseline wait for the pipeline's ERA5-Land 1996–2025 data.**
 This page is the working document for the projections track (plan §3b, milestones P1–P2). The
 method, model list, skill table and limitations sections are filled in as Phase 2 lands.
 
@@ -221,16 +222,90 @@ Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
 
 ## Validation and model selection
 
-_Filled in once all downloads and the ERA5-Land snow cube are in._ Two checks per model:
+Three checks per model, all scored over land 25–75 °N (where Christmas snow varies), weighted by
+cos(latitude), glacier cells excluded, on each model's own grid (ERA5-Land is aggregated to it):
 
-- **Bias:** baseline (1995–2014) white-Christmas frequency against ERA5-Land for the same years,
-  aggregated to the model grid (cos-latitude-weighted over land 25–75 °N): mean bias, mean
-  absolute error (all cells and the "transition" cells where ERA5-Land is between 5 and 95 %),
-  spatial correlation. Bias maps per model.
+- **Frequency pattern:** the model's white-Christmas frequency against ERA5-Land for the same
+  years: mean bias, mean absolute error (all cells, and the "transition" cells where ERA5-Land is
+  between 5 and 95 %), and spatial correlation. Bias maps per model:
+  `interim/projections/validation/bias_<model>_<years>.nc`.
+- **Snow amount:** the median Christmas-Day SWE on snowy days at 40–60 °N against ERA5-Land snow
+  depth converted at 250 kg m⁻³. A frequency check cannot see a snowpack that never melts (it is
+  "white" either way), but such a model cannot lose its Christmas snow in a warmer world either.
 - **Hindcast (Brier skill):** apply each model's own 1961–1990 → 1996–2025 change to ERA5-Land's
-  1961–1990 probability and compare with what ERA5-Land observed in 1996–2025. The Brier skill
-  score against "no change" says whether the model changes point the right way by about the
-  right amount; a reliability table checks the ensemble median.
+  1961–1990 probability and score it against what ERA5-Land observed in 1996–2025. The Brier
+  skill score against "no change" says whether the model changes point the right way by about the
+  right amount; a reliability table checks the ensemble median. _Pending: needs ERA5-Land
+  1996–2025 (the pipeline's download had reached 1998 on 2026-11-19)._
+
+**Selection rule** (`validation.select_models`, applied automatically before the ensemble): a model
+is dropped if its snow amount is outside 0.25–4 × ERA5-Land, its pattern correlation is below 0.80,
+or its transition-cell error exceeds 35 pp.
+
+### Interim results (ERA5-Land 1961–1990)
+
+ERA5-Land 1995–2014 is not complete yet, so the first validation uses 1961–1990, a period where
+every year is on disk; model frequencies are from each model's `historical` run for the same
+years (Christmas ± 7 days, threshold 2.5 kg m⁻²). The run on 1995–2014 replaces this table once the
+data is in. ERA5-Land median Christmas SWE at 40–60 °N: 64 kg m⁻² (at 250 kg m⁻³).
+
+| Model | Grid | Model % | ERA5-Land % | Bias (pp) | MAE (pp) | MAE transition (pp) | Corr. | SWE ratio | Used |
+|---|---|---|---|---|---|---|---|---|---|
+| ACCESS-CM2 | 144x192 | 77 | 68 | +8.8 | 10.0 | 24.9 | 0.90 | 10.15 | **no** |
+| ACCESS-ESM1-5 | 145x192 | 58 | 67 | -9.3 | 12.3 | 27.9 | 0.88 | 0.54 | yes |
+| AWI-CM-1-1-MR | 192x384 | 51 | 69 | -17.5 | 17.8 | 32.8 | 0.84 | 0.43 | yes |
+| BCC-CSM2-MR | 160x320 | 62 | 67 | -5.5 | 8.7 | 20.4 | 0.93 | 0.68 | yes |
+| CanESM5 | 64x128 | 68 | 68 | +0.0 | 7.3 | 17.4 | 0.94 | 0.62 | yes |
+| CESM2 | 192x288 | 63 | 69 | -5.9 | 8.5 | 22.1 | 0.93 | 0.62 | yes |
+| EC-Earth3 | 256x512 | 71 | 69 | +2.7 | 5.1 | 13.8 | 0.97 | 0.6 | yes |
+| EC-Earth3-Veg | 256x512 | 70 | 69 | +1.4 | 4.3 | 11.3 | 0.98 | 0.56 | yes |
+| GFDL-CM4 | 180x288 | 61 | 68 | -7.1 | 9.2 | 21.2 | 0.92 | 0.57 | yes |
+| GFDL-ESM4 | 180x288 | 57 | 68 | -10.7 | 12.2 | 26.3 | 0.89 | 0.55 | yes |
+| HadGEM3-GC31-LL | 144x192 | 61 | 68 | -7.4 | 9.0 | 20.7 | 0.93 | 0.44 | yes |
+| INM-CM4-8 | 120x180 | 56 | 69 | -13.3 | 14.7 | 29.5 | 0.86 | 0.64 | yes |
+| INM-CM5-0 | 120x180 | 57 | 69 | -12.2 | 13.8 | 27.6 | 0.86 | 0.6 | yes |
+| IPSL-CM6A-LR | 143x144 | 67 | 68 | -1.1 | 5.6 | 13.7 | 0.96 | 0.68 | yes |
+| MIROC-ES2L | 64x128 | 61 | 68 | -7.1 | 11.6 | 23.8 | 0.88 | 0.52 | yes |
+| MIROC6 | 128x256 | 62 | 68 | -6.8 | 9.9 | 23.3 | 0.91 | 0.61 | yes |
+| MPI-ESM1-2-HR | 192x384 | 53 | 69 | -15.7 | 16.1 | 29.5 | 0.85 | 0.45 | yes |
+| MPI-ESM1-2-LR | 96x192 | 55 | 68 | -13.0 | 14.2 | 27.4 | 0.86 | 0.49 | yes |
+| MRI-ESM2-0 | 160x320 | 66 | 67 | -1.0 | 6.7 | 17.4 | 0.94 | 0.66 | yes |
+| NESM3 | 96x192 | 49 | 67 | -17.7 | 18.2 | 32.9 | 0.82 | 0.18 | **no** |
+| UKESM1-0-LL | 144x192 | 62 | 68 | -6.0 | 8.8 | 19.6 | 0.92 | 0.35 | yes |
+
+- **Dropped: ACCESS-CM2.** Its Christmas snowpack is ten times ERA5-Land's (median 646 kg m⁻²;
+  at Chicago often more than 1 m of snow on Christmas Day): it practically never melts, so its future
+  change is near zero by construction. Its frequency pattern alone looks fine, which is why the
+  amount check exists.
+- **Dropped: NESM3.** Snow amount 0.18 × ERA5-Land (a thin snowpack barely above the threshold),
+  together with the weakest frequency pattern of all models (correlation 0.82, −18 pp bias).
+- Most models have too little Christmas snow (biases mostly −5 to −15 pp), the usual CMIP6 warm/dry
+  bias over Eurasian and North American mid-latitudes. Because only each model's *change* is used,
+  a moderate bias is acceptable; the change is still computed where the model's own snow is
+  uncertain. The snow-amount ratios cluster at 0.35–0.68, i.e. ERA5-Land December snow is on
+  average lighter than the assumed 250 kg m⁻³ (or deeper than the models'), consistently.
+- **19 models are used**, from 13 model families: six pairs share most of their code
+  (EC-Earth3/-Veg, MPI-ESM1-2-HR/-LR, INM-CM4-8/5-0, GFDL-CM4/ESM4, HadGEM3/UKESM1,
+  MIROC6/MIROC-ES2L). They are weighted equally for now; family weighting is a possible refinement.
+
+### Sensitivity to threshold and day pooling
+
+Christmas-Day log-odds change at +2 °C, all 21 models, cells where the models' median baseline
+frequency is 10–90 %, Northern Hemisphere 25–75 °N on a 1° grid
+(`scripts/projections/sensitivity.py`):
+
+| SWE threshold (kg m⁻²) | Pooling | Median change | Model spread (p10–p90) | Noise (neighbour diff.) |
+|---|---|---|---|---|
+| 2.5 | none (Dec 25 only) | −0.554 | 1.71 | 0.106 |
+| 2.5 | ± 3 days | −0.563 | 1.45 | 0.087 |
+| **2.5** | **± 7 days (used)** | **−0.553** | **1.30** | **0.075** |
+| 1.0 | ± 7 days | −0.552 | 1.24 | 0.068 |
+| 5.0 | ± 7 days | −0.552 | 1.39 | 0.084 |
+
+The typical change does not depend on the threshold or on pooling (−0.55 in every case: at 50 %
+today, about 37 % at +2 °C). Pooling ± 7 days narrows the model spread by about a quarter and
+cell-to-cell noise by about 30 %, which is the point of it: less of the uncertainty band is
+sampling noise.
 
 ## Limitations
 
