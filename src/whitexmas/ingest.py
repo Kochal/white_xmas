@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 NODATA = -1
 CHUNK = 50
-BAND = 150  # rows read per pass (multiple of CHUNK) to bound memory
+BAND = 50  # rows read per pass (multiple of CHUNK); ~80 MB of cube per pass
 G = 9.80665
 CUBE_VERSION = 1
 
