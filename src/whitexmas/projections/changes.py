@@ -49,6 +49,51 @@ def model_land_pct(pp: ProjPaths, model: str, lat, lon, era5_land: np.ndarray | 
     return pct
 
 
+def model_land(
+    pp: ProjPaths,
+    model: str,
+    lat: np.ndarray,
+    lon: np.ndarray,
+    n_base: np.ndarray,
+    s: ProjSettings,
+    era5_land: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray | None]:
+    """Land mask on the model grid: cells with baseline data and a land fraction of at least
+    ``s.land_min_pct`` (from ``sftlf``, or the ERA5-Land mask where ``sftlf`` is missing).
+    Many models report snw over the ocean too (sea ice), so the fraction test matters."""
+    land_pct = model_land_pct(pp, model, lat, lon, era5_land)
+    land = np.asarray(n_base) > 0
+    if land_pct is not None:
+        land &= land_pct >= s.land_min_pct
+    return land, land_pct
+
+
+def masked_delta(kb, nb, kf, nf, land: np.ndarray) -> np.ndarray:
+    """Log-odds change, NaN off land and wherever either window has no valid year."""
+    d = logodds_change(kb, nb, kf, nf)
+    return np.where(land & (nf > 0) & (nb > 0), d, np.nan).astype("float32")
+
+
+def window_change(
+    pp: ProjPaths,
+    model: str,
+    base: tuple[str, int, int],
+    fut: tuple[str, int, int],
+    s: ProjSettings,
+    era5_land: np.ndarray | None = None,
+) -> dict:
+    """The production change computation for arbitrary windows ``(experiment, y0, y1)``:
+    counts, land mask and masked log-odds change, shaped (definition, lat, lon). Used by
+    :func:`compute_model`, the hindcast and the sensitivity script alike."""
+    kb, nb, lat, lon = counts_for_window(pp.cmip6, model, *base, s)
+    kf, nf, *_ = counts_for_window(pp.cmip6, model, *fut, s)
+    land, land_pct = model_land(pp, model, lat, lon, nb[0], s, era5_land)
+    return {
+        "kb": kb, "nb": nb, "kf": kf, "nf": nf, "lat": lat, "lon": lon,
+        "land": land, "land_pct": land_pct, "delta": masked_delta(kb, nb, kf, nf, land),
+    }  # fmt: skip
+
+
 def compute_model(
     pp: ProjPaths, model: str, s: ProjSettings, era5_land: np.ndarray | None = None
 ) -> Path:
@@ -56,13 +101,10 @@ def compute_model(
 
     plan = load_plan(pp.cmip6)["models"][model]
     b0, b1 = s.baseline
-    kb, nb, lat, lon = counts_for_window(pp.cmip6, model, "historical", b0, b1, s)
+    kb, nb, lat, lon = counts_for_window(pp.cmip6, model, s.baseline_experiment, b0, b1, s)
     if nb.max() < (b1 - b0 + 1):
         log.warning("%s: baseline has only %d of %d years", model, nb.max(), b1 - b0 + 1)
-    land_pct = model_land_pct(pp, model, lat, lon, era5_land)
-    land = np.isfinite(kb[0]) & (nb[0] > 0)
-    if land_pct is not None:
-        land &= land_pct >= s.land_min_pct
+    land, land_pct = model_land(pp, model, lat, lon, nb[0], s, era5_land)
     windows = ["baseline"]
     k_all, n_all, deltas, wattrs = [kb], [nb], [], {}
     for g in s.gwls:
@@ -76,8 +118,7 @@ def compute_model(
             k, n, *_ = counts_for_window(pp.cmip6, model, w["experiment"], w["start"], w["end"], s)
             k_all.append(k)
             n_all.append(n)
-            d = logodds_change(kb, nb, k, n).astype("float32")
-            deltas.append(np.where(land & (n > 0) & (nb > 0), d, np.nan))
+            deltas.append(masked_delta(kb, nb, k, n, land))
             wattrs[f"window_{g}"] = f"{w['experiment']} {w['start']}-{w['end']}"
         windows.append(str(g))
     ds = xr.Dataset(
@@ -97,7 +138,7 @@ def compute_model(
         attrs={
             "model": model,
             "member": plan["member"],
-            "baseline": f"historical {b0}-{b1}",
+            "baseline": f"{s.baseline_experiment} {b0}-{b1}",
             **wattrs,
             **{f"setting_{k}": str(v) for k, v in s.as_attrs().items()},
         },

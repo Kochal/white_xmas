@@ -26,11 +26,10 @@ import numpy as np
 
 from ..paths import DataPaths
 from .baseline import NX, NY, era5_window_frequency, load_baseline, target_grid
-from .changes import counts_for_window
+from .changes import counts_for_window, window_change
 from .cmip6 import box_mean, load_plan
 from .ensemble import project_model
 from .settings import ProjPaths, ProjSettings
-from .transfer import logodds_change
 
 log = logging.getLogger(__name__)
 REGION = (25.0, 75.0)
@@ -162,7 +161,10 @@ def hindcast(
     f_then = era5_window_frequency(paths, d, *then)
     f_now = era5_window_frequency(paths, d, *now)
     if f_then is None or f_now is None:
-        raise FileNotFoundError("hindcast needs the pipeline's snow cube (interim/snow_cube.zarr)")
+        raise FileNotFoundError(
+            f"hindcast needs ERA5-Land {then[0]}-{then[1]} and {now[0]}-{now[1]} "
+            "(the pipeline's snow cube, or at least 80 % of the raw years)"
+        )
     glacier = load_baseline(paths, d, s.obs_window).glacier
     tlat, _ = target_grid()
     w = _region_weights(tlat, NX)
@@ -175,19 +177,25 @@ def hindcast(
     bs_ref = brier(p_then[cells], fn, wc)
     bs_oracle = brier(100.0 * fn, fn, wc)
     plan = load_plan(pp.cmip6)["models"]
-    names = [m for m in (models or sorted(plan)) if m not in s.exclude]
+    try:
+        exclude = set(s.exclude) | set(dropped_models(pp.validation))
+    except UntrustedSelection as e:
+        log.warning("hindcast: ignoring the saved selection (%s)", e)
+        exclude = set(s.exclude)
+    names = [m for m in (models or sorted(plan)) if m not in exclude]
     rows, projs = [], []
     hs = ProjSettings(**{**s.__dict__, "definitions": (d,)})
+    era5_land = np.isfinite(f_then)
     for m in names:
         try:
-            k0, n0, lat, lon = counts_for_window(pp.cmip6, m, "historical", *then, hs)
-            k1, n1, *_ = counts_for_window(pp.cmip6, m, "ssp245", *now, hs)
+            # exactly the production computation (land mask included), other windows
+            ch = window_change(
+                pp, m, ("historical", *then), ("ssp245", *now), hs, era5_land=era5_land
+            )
         except FileNotFoundError as e:
             log.warning("hindcast %s skipped: %s", m, e)
             continue
-        land = np.isfinite(k0[0]) & (n0[0] > 0) & (n1[0] > 0)
-        delta = np.where(land, logodds_change(k0[0], n0[0], k1[0], n1[0]), np.nan)
-        _, proj = project_model(delta, lat, lon, p_then, n_then, cells)
+        _, proj = project_model(ch["delta"][0], ch["lat"], ch["lon"], p_then, n_then, cells)
         projs.append(proj)
         bs = brier(proj, fn, wc)
         rows.append(

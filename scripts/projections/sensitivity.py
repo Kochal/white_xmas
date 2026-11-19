@@ -4,8 +4,9 @@ Run inside the project env::
 
     uv run python scripts/projections/sensitivity.py [--gwl 2.0]
 
-For every model and setting it computes the Christmas-Day log-odds change from the 1995-2014
-baseline to the model's warming-level window, and summarises it over "transition" land cells
+For every model and setting it computes the Christmas-Day log-odds change from the model
+baseline to the model's warming-level window, with exactly the production computation
+(``changes.window_change``: land mask included), and summarises it over "transition" land cells
 (Northern Hemisphere 25-75 °N, baseline frequency between 10 and 90 %), cos-lat weighted:
 
 - ``median_delta``: the typical change (should hardly depend on the threshold)
@@ -25,12 +26,12 @@ import json
 import numpy as np
 
 from whitexmas.paths import DataPaths
-from whitexmas.projections.changes import counts_for_window, model_land_pct
+from whitexmas.projections.baseline import era5_window_frequency
+from whitexmas.projections.changes import window_change
 from whitexmas.projections.cmip6 import load_plan
 from whitexmas.projections.ensemble import nan_percentiles
 from whitexmas.projections.regrid import bilinear, fill_nearest
 from whitexmas.projections.settings import ProjPaths, ProjSettings
-from whitexmas.projections.transfer import logodds_change
 
 SETTINGS = [(2.5, 0), (2.5, 3), (2.5, 7), (1.0, 7), (5.0, 7)]
 GRID_LAT = np.arange(25.0, 75.01, 1.0)
@@ -42,7 +43,11 @@ def main() -> None:
     ap.add_argument("--gwl", type=float, default=2.0)
     ap.add_argument("--model", action="append")
     args = ap.parse_args()
-    pp = ProjPaths.from_data(DataPaths.from_env())
+    paths = DataPaths.from_env()
+    pp = ProjPaths.from_data(paths)
+    # ERA5-Land land mask, only for models without a usable sftlf (NESM3)
+    f = era5_window_frequency(paths, "christmas_day", 1961, 1990)
+    era5_land = None if f is None else np.isfinite(f)
     plan = load_plan(pp.cmip6)["models"]
     models = args.model or sorted(plan)
     w = np.cos(np.deg2rad(GRID_LAT))[:, None] * np.ones((1, len(GRID_LON)))
@@ -55,18 +60,18 @@ def main() -> None:
             if not win:
                 continue
             try:
-                kb, nb, lat, lon = counts_for_window(pp.cmip6, m, "historical", 1995, 2014, s)
-                kf, nf, *_ = counts_for_window(
-                    pp.cmip6, m, win["experiment"], win["start"], win["end"], s
+                ch = window_change(
+                    pp,
+                    m,
+                    (s.baseline_experiment, *s.baseline),
+                    (win["experiment"], win["start"], win["end"]),
+                    s,
+                    era5_land=era5_land,
                 )
             except FileNotFoundError:
                 continue
-            pct = model_land_pct(pp, m, lat, lon, None)
-            land = np.isfinite(kb[0]) & (nb[0] > 0)
-            if pct is not None:
-                land &= pct >= 50
-            d = np.where(land, logodds_change(kb[0], nb[0], kf[0], nf[0]), np.nan)
-            fb = np.where(land, kb[0] / np.maximum(nb[0], 1), np.nan)
+            lat, lon, d = ch["lat"], ch["lon"], ch["delta"][0]
+            fb = np.where(ch["land"], ch["kb"][0] / np.maximum(ch["nb"][0], 1), np.nan)
             r = np.nanmean(np.abs(np.diff(d, axis=1)))
             rough.append(float(r))
             deltas.append(bilinear(fill_nearest(d), lat, lon, GRID_LAT, GRID_LON))
