@@ -150,6 +150,7 @@ class StationRecord:
     dec_snow_mm: dict[int, int] = field(default_factory=dict)  # year -> December snowfall
     dec_snwd_pos: dict[int, int] = field(default_factory=dict)  # year -> days with SNWD > 0
     dec_snwd_n: int = 0
+    dec_snwd_gsod: int = 0  # December SNWD values with source flag S (GSOD)
     dec_snwd_zero: int = 0
     qflag_dropped: int = 0
     tmean: dict[int, float] = field(default_factory=dict)  # month -> mean °C (12, 1, 7)
@@ -169,11 +170,16 @@ class StationRecord:
         return self.dec_both_days.get(year, 0) / core if core else float("nan")
 
     @property
+    def dec_gsod_share(self) -> float:
+        """Share of December SNWD values from GSOD (source flag S), which omit zero depths."""
+        return self.dec_snwd_gsod / self.dec_snwd_n if self.dec_snwd_n else float("nan")
+
+    @property
     def dec_zero_share(self) -> float:
         return self.dec_snwd_zero / self.dec_snwd_n if self.dec_snwd_n else float("nan")
 
 
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 
 def read_station_cached(path: Path, first: int = 1950, last: int = 2025) -> StationRecord:
@@ -243,6 +249,7 @@ def read_station(path: Path, first: int = 1950, last: int = 2025) -> StationReco
                 snwd_days[year].add(day)
                 rec.dec_snwd_n += 1
                 rec.dec_snwd_zero += v == 0
+                rec.dec_snwd_gsod += len(p) > 6 and p[6] == "S"
                 if v > 0:
                     rec.dec_snwd_pos[year] = rec.dec_snwd_pos.get(year, 0) + 1
                 if 24 <= day <= 26:

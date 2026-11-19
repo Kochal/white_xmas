@@ -36,7 +36,9 @@ Quality rules, per station and station-year (``evaluate_station``):
   1 cm are white in < ``never_white_pct`` % (no information about the threshold), or when the
   station and its cell differ by more than ``max_elev_diff_m`` in elevation;
 - flags (kept in the calibration): US whole-inch reporting, coastal (nearest land cell used),
-  high mountain (station or cell ≥ ``high_mountain_m``).
+  high mountain (station or cell ≥ ``high_mountain_m``), lake (cell lake cover >
+  ``lake_cover``), GSOD-sourced (more than ``gsod_share`` of December snow depths carry GHCN
+  source flag S, a source that omits zero depths).
 """
 
 from __future__ import annotations
@@ -134,6 +136,8 @@ class Rules:
     never_white_pct: float = 5
     max_elev_diff_m: float = 200
     high_mountain_m: float = 1500
+    lake_cover: float = 0.3
+    gsod_share: float = 0.5
     thresholds_cm: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7, 8)
 
     @classmethod
@@ -234,6 +238,7 @@ def evaluate_station(
     cell_offset: tuple[int, int],
     cell_elev: float,
     rules: Rules,
+    cell_lake: float = 0.0,
 ) -> dict:
     """One station's row: observed and ERA5-Land frequencies, contingency, flags and status.
 
@@ -258,6 +263,8 @@ def evaluate_station(
         "first": used[0] if used else None, "last": used[-1] if used else None,
         "coverage": len(used) / (used[-1] - used[0] + 1) if used else 0.0,
         "dec_zero_share": rec.dec_zero_share,
+        "dec_gsod_share": rec.dec_gsod_share,
+        "cell_lake_cover": float(cell_lake),
         "dec_tmean_c": rec.tmean.get(12, float("nan")),
         "continentality_c": rec.tmean.get(7, float("nan")) - rec.tmean.get(1, float("nan")),
     }  # fmt: skip
@@ -276,6 +283,11 @@ def evaluate_station(
         flags.append("high_mountain")
     if np.isfinite(dz) and abs(dz) > rules.max_elev_diff_m:
         flags.append("elev_mismatch")
+    if np.isfinite(cell_lake) and cell_lake > rules.lake_cover:
+        flags.append("lake")
+    gs = rec.dec_gsod_share
+    if np.isfinite(gs) and gs > rules.gsod_share:
+        flags.append("gsod_sourced")
     row["flags"] = flags
 
     if used:

@@ -128,6 +128,8 @@ stations:
   max_snowfall_without_depth_share: 0.2  # ... in > 20 % of such Decembers -> zero-filled record
   never_white_pct: 5         # auto: station and ERA5-Land at 1 cm both white < 5 %: no information
   high_mountain_m: 1500      # auto: flag stations (or cells) at or above this elevation
+  lake_cover: 0.3            # auto: flag stations whose cell has more lake than this
+  gsod_share: 0.5            # auto: flag records mostly from GSOD (omits zero depths)
   obs_threshold_mm: 10       # observed white Christmas: SNWD >= 1 cm (US stations: whole inches)
   min_years: 15              # overlapping years with the cube
   always_white_pct: 95       # stations observed white in >= this share are left out of calibration

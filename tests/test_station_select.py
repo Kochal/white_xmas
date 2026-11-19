@@ -412,3 +412,20 @@ def test_two_way_bootstrap_widens_for_a_shared_year_signal():
         plain, [5], 50, seed=1, years=False))  # fmt: skip
     ci = ss.ci_methods(rows, 5, 200)
     assert set(ci) >= {"5° blocks", "years only", "years × 10° blocks (used)"}
+
+
+def test_lake_and_gsod_flags(tmp_path):
+    p = write_station(tmp_path / "l.csv.gz", "XX000000015", white_every(3))
+    rec = ghcn.read_station(p)
+    row = sel.evaluate_station(meta(), rec, model_from(set()), YEARS, (1, 1), (0, 0), 300.0,
+                               RULES, cell_lake=0.37)  # fmt: skip
+    assert "lake" in row["flags"] and "gsod_sourced" not in row["flags"]
+    assert rec.dec_gsod_share == 0.0
+    # the same record, every value from GSOD (source flag S)
+    txt = gzip.open(p, "rt").read().replace(",,,E,", ",,,S,")
+    with gzip.open(p, "wt") as f:
+        f.write(txt)
+    rec = ghcn.read_station(p)
+    assert rec.dec_gsod_share == 1.0
+    row = sel.evaluate_station(meta(), rec, model_from(set()), YEARS, (1, 1), (0, 0), 300.0, RULES)
+    assert "gsod_sourced" in row["flags"] and "lake" not in row["flags"]

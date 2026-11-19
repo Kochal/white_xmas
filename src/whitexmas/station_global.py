@@ -46,6 +46,7 @@ class CubeColumns:
         self.years = [int(y) for y in self.g["year"][:]]
         self.land = self.g["land"][:]
         self.oro = self.g["orography_m"][:] if "orography_m" in self.g else None
+        self.lake = self.g["lake_cover"][:] if "lake_cover" in self.g else None
         self.cj, self.ci = self.arr.chunks[2], self.arr.chunks[3]
         self._cache: dict[tuple[int, int], np.ndarray] = {}
 
@@ -61,6 +62,9 @@ class CubeColumns:
 
     def cell_elev(self, cell: tuple[int, int]) -> float:
         return float(self.oro[cell]) if self.oro is not None else float("nan")
+
+    def cell_lake(self, cell: tuple[int, int]) -> float:
+        return float(self.lake[cell]) if self.lake is not None else 0.0
 
     def cell_of(self, m: ghcn.StationMeta):
         """(land cell, its offset from the station's own cell, cell elevation) or None."""
@@ -94,7 +98,8 @@ def examine(
     col = cube.column(*cell)
     yrs = [y for y in cube.years if first <= y <= last]
     model = np.stack([col[cube.years.index(y)] for y in yrs])
-    return sel.evaluate_station(m, rec, model, yrs, cell, off, ce, rules)
+    lake = cube.cell_lake(cell) if hasattr(cube, "cell_lake") else 0.0
+    return sel.evaluate_station(m, rec, model, yrs, cell, off, ce, rules, lake)
 
 
 def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tuple[list, dict]:
@@ -251,6 +256,7 @@ def sensitivity(rows: list[dict], rules: sel.Rules, thresholds: list[int], n_boo
         ("only US stations", [r for r in used if r["us_inches"]]),
         ("without coastal stations", [r for r in used if "coastal" not in r["flags"]]),
         ("without high-mountain stations", [r for r in used if "high_mountain" not in r["flags"]]),
+        ("without lake stations (lake cover > 0.3)", [r for r in used if "lake" not in r["flags"]]),
     ]
     out = []
     for name, rs in variants:
@@ -315,7 +321,8 @@ CSV_FIELDS = [
     "id", "name", "lat", "lon", "elev_m", "country", "country_name", "state", "region",
     "cell_j", "cell_i", "cell_offset_j", "cell_offset_i", "cell_elev_m", "elev_diff_m",
     "years", "first", "last", "coverage", "years_with_value", "incomplete_years",
-    "dec_zero_share", "dec_tmean_c", "continentality_c", "climate", "obs_pct",
+    "dec_zero_share", "dec_gsod_share", "cell_lake_cover", "dec_tmean_c", "continentality_c",
+    "climate", "obs_pct",
 ]  # fmt: skip
 
 
@@ -337,7 +344,9 @@ def write_csv(path: Path, rows: list[dict], thresholds: list[int], countries: di
                 r["cell"][1], r["cell_offset"][0], r["cell_offset"][1], _r(r["cell_elev_m"], 1),
                 _r(r["elev_diff_m"], 1), r["years"], r["first"] or "", r["last"] or "",
                 _r(r["coverage"], 3), r["years_with_value"], r["incomplete_years"],
-                _r(r["dec_zero_share"], 3), _r(r["dec_tmean_c"], 1), _r(r["continentality_c"], 1),
+                _r(r["dec_zero_share"], 3), _r(r.get("dec_gsod_share"), 3),
+                _r(r.get("cell_lake_cover"), 3), _r(r["dec_tmean_c"], 1),
+                _r(r["continentality_c"], 1),
                 r["climate"], _r(r.get("obs_pct"), 1),
             ]  # fmt: skip
             vals += [_r(r["model_pct"][t], 1) if has else "" for t in thresholds]
@@ -363,6 +372,8 @@ def web_json(rows: list[dict], meta: dict) -> dict:
     for r in sorted(rows, key=lambda r: r["id"]):
         if r["status"] == "excluded":
             continue  # web shows only stations with a trustworthy record
+        if r["status"] == "separated" and "gsod_sourced" in r["flags"]:
+            continue  # "always white" from a source that omits zeros: unverifiable
         mp = r.get("model_pct", {})
         out_rows.append([
             r["id"], r["name"], round(r["lat"], 4), round(r["lon"], 4), _r(r["elev_m"], 0, None),
