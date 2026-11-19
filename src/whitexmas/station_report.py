@@ -489,7 +489,7 @@ re-fitted global whole-cm threshold gives mean bias {cv["global"]["mean_bias_pp"
 {cv["regional"]["mean_bias_pp"]:+.1f}, {cv["regional"]["mae_pp"]:.1f} and
 {cv["regional"]["region_mean_abs_bias_pp"]:.1f} pp.</li>
 </ul>
-<b>By region</b> (bias at {t} cm with 95 % spatial block-bootstrap interval; "consistent" = the
+<b>By region</b> (bias at {t} cm with 95 % two-way bootstrap interval; "consistent" = the
 interval includes 0; T* = where the mean bias crosses zero):<ul>{verdicts}</ul>
 <b>Untested or barely tested</b> (fewer than {min_n} usable stations): {thin_txt}. Almost all
 GHCN-Daily snow depth from Russia, Central Asia, China, Japan, Korea, Turkey, Eastern Europe and

@@ -119,7 +119,7 @@ def block_bootstrap(
     seed: int = 0,
     deg: float = BLOCK_DEG,
 ) -> tuple[float, float]:
-    """95 % percentile interval of any ``stat`` under the spatial block bootstrap (slow path)."""
+    """95 % percentile interval of any ``stat``, resampling station blocks only (slow path)."""
     if len(rows) < 2:
         return float("nan"), float("nan")
     rng = np.random.default_rng(seed)
