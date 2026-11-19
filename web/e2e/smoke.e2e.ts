@@ -14,8 +14,14 @@ test('map loads, search "Munich" opens the panel with a year strip', async ({ pa
 	await expect(panel.getByRole('heading', { name: 'Munich' })).toBeVisible();
 	await expect(panel.getByTestId('headline')).toHaveText(/\d+%/);
 	const strip = panel.getByTestId('year-strip');
-	await expect(strip.getByRole('img')).toHaveAttribute('aria-label', /1950 to 2025/);
+	await expect(strip.getByRole('group')).toHaveAttribute('aria-label', /1950 to 2025/);
 	await expect(strip.locator('.cell')).toHaveCount(76);
+	// a year's details are reachable by tap and keyboard
+	await strip.getByRole('button', { name: /^1987:/ }).click();
+	await expect(strip.getByTestId('year-detail')).toContainText('1987:');
+	await page.keyboard.press('ArrowRight');
+	await expect(strip.getByTestId('year-detail')).toContainText('1988:');
+	await expect(strip.getByRole('table')).toHaveCount(1);
 
 	// the selection is in the URL, so the view can be shared
 	await expect(page).toHaveURL(/place=Munich/);
@@ -51,6 +57,14 @@ test('a shared URL restores the selected place', async ({ page }) => {
 	const layersToggle = page.getByRole('button', { name: 'Map layers' });
 	if (await layersToggle.isVisible()) await layersToggle.click(); // phones fold the controls
 	await expect(page.getByRole('radio', { name: 'Change' })).toBeChecked();
+});
+
+test('a shared URL with a name that does not match the place shows coordinates', async ({
+	page
+}) => {
+	await page.goto('/?at=47.0000,15.0000&place=Munich');
+	const heading = page.getByTestId('place-panel').getByRole('heading', { level: 2 });
+	await expect(heading).toHaveText('47.0°N 15.0°E');
 });
 
 test('no horizontal scroll at 360 px', async ({ page }) => {

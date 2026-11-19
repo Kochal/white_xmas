@@ -12,12 +12,16 @@ on:
       - 'web/**'
       - '.github/workflows/web.yml'
   workflow_dispatch:
+  # pages.yml calls this workflow so a deploy only happens after these checks pass
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: web-${{ github.ref }}
+  # github.workflow is the caller's name when called from pages.yml, so a deploy's checks never
+  # cancel (or get cancelled by) the push-triggered run of this workflow
+  group: web-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:

@@ -24,6 +24,35 @@
 	);
 	const pct = (year: number) => ((year - first) / n) * 100;
 
+	/** The year whose details are shown; tap a cell or use the arrow keys. */
+	let selected = $state<number | null>(null);
+	let cellsEl: HTMLDivElement;
+	const last = $derived(strip[strip.length - 1]?.year ?? 0);
+	const focusYear = $derived(selected ?? last);
+	const selectedCell = $derived(strip.find((c) => c.year === selected) ?? null);
+
+	function select(year: number, focus = false) {
+		const y = Math.max(first, Math.min(last, year));
+		selected = y;
+		if (focus) cellsEl?.querySelector<HTMLButtonElement>(`[data-year="${y}"]`)?.focus();
+	}
+
+	function onkeydown(e: KeyboardEvent) {
+		const step: Record<string, number> = {
+			ArrowLeft: -1,
+			ArrowRight: 1,
+			ArrowDown: -1,
+			ArrowUp: 1,
+			PageDown: -10,
+			PageUp: 10
+		};
+		if (e.key in step) select(focusYear + step[e.key], true);
+		else if (e.key === 'Home') select(first, true);
+		else if (e.key === 'End') select(last, true);
+		else return;
+		e.preventDefault();
+	}
+
 	function title(c: YearCell): string {
 		if (c.state === 'nodata') return `${c.year}: no data`;
 		const d =
@@ -33,7 +62,7 @@
 </script>
 
 <figure class="strip" data-testid="year-strip">
-	<div class="cells" role="img" aria-label={summary}>
+	<div class="cells" role="group" aria-label={summary} bind:this={cellsEl}>
 		{#if window}
 			<div
 				class="win-overlay"
@@ -42,7 +71,18 @@
 			></div>
 		{/if}
 		{#each strip as c (c.year)}
-			<span class="cell {c.state}" title={title(c)}></span>
+			<button
+				type="button"
+				class="cell {c.state}"
+				class:selected={selected === c.year}
+				data-year={c.year}
+				tabindex={c.year === focusYear ? 0 : -1}
+				aria-label={title(c)}
+				aria-pressed={selected === c.year}
+				title={title(c)}
+				onclick={() => select(c.year)}
+				{onkeydown}
+			></button>
 		{/each}
 	</div>
 	<div class="ticks" aria-hidden="true">
@@ -50,6 +90,52 @@
 			<span style:left="{pct(y + 0.5)}%">{y}</span>
 		{/each}
 	</div>
+	<div class="detail" aria-live="polite" data-testid="year-detail">
+		{#if selectedCell}
+			<button
+				type="button"
+				class="step"
+				aria-label="Previous year"
+				disabled={selectedCell.year <= first}
+				onclick={() => select(selectedCell.year - 1)}
+			>
+				‹
+			</button>
+			<span class="detail-text">{title(selectedCell)}</span>
+			<button
+				type="button"
+				class="step"
+				aria-label="Next year"
+				disabled={selectedCell.year >= last}
+				onclick={() => select(selectedCell.year + 1)}
+			>
+				›
+			</button>
+		{:else}
+			<span class="muted">Tap a year, or use the arrow keys, for its details.</span>
+		{/if}
+	</div>
+	<table class="visually-hidden">
+		<caption>Snow at Christmas, year by year</caption>
+		<thead>
+			<tr>
+				<th scope="col">Year</th><th scope="col">White or green</th><th scope="col">Snow depth</th>
+			</tr>
+		</thead>
+		<tbody>
+			{#each strip as c (c.year)}
+				<tr>
+					<th scope="row">{c.year}</th>
+					<td>{c.state === 'nodata' ? 'no data' : c.state}</td>
+					<td>
+						{c.depth === null
+							? '–'
+							: `${c.capped ? '≥ ' : ''}${Math.round(c.depth)} cm ${depthLabel}`}
+					</td>
+				</tr>
+			{/each}
+		</tbody>
+	</table>
 	<figcaption>
 		<span><i class="key white"></i>white ({counts.white})</span>
 		<span><i class="key green"></i>green ({counts.green})</span>
@@ -81,7 +167,44 @@
 		position: relative;
 		flex: 1 1 0;
 		min-width: 0;
+		padding: 0;
+		border: 0;
 		border-radius: 1.5px;
+		background: none;
+		cursor: pointer;
+	}
+	.cell:focus-visible,
+	.cell.selected {
+		outline: 2px solid var(--accent);
+		outline-offset: 1px;
+		z-index: 1;
+	}
+	.detail {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-height: 30px;
+		font-size: 0.85rem;
+	}
+	.detail-text {
+		flex: 1;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+	.step {
+		width: 30px;
+		height: 30px;
+		border: 1px solid var(--line);
+		border-radius: 6px;
+		background: var(--surface);
+		color: var(--text);
+		font-size: 1.1rem;
+		line-height: 1;
+		cursor: pointer;
+	}
+	.step:disabled {
+		opacity: 0.4;
+		cursor: default;
 	}
 	.cell.white {
 		background: var(--white-year);

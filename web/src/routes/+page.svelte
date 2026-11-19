@@ -156,8 +156,9 @@
 				await tick();
 				ready = true;
 				if (url.at) {
-					let restored: PlaceLabel | null = url.place ? { name: url.place, detail: '' } : null;
-					// restore the place's region and country from places.json when it matches
+					// Name the place only if it is a places.json entry at that spot; a link can carry
+					// any text, so otherwise the panel shows the coordinates.
+					let restored: PlaceLabel | null = null;
 					if (url.place) {
 						try {
 							const { places } = await source.places();
@@ -169,7 +170,7 @@
 							);
 							if (p) restored = placeLabel(p);
 						} catch {
-							/* the label stays as given */
+							/* places unavailable: show the coordinates */
 						}
 					}
 					select(url.at.lon, url.at.lat, restored, restored ? 2 : 0);
