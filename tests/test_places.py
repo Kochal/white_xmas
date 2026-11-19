@@ -38,3 +38,21 @@ def test_pick_alt_caps_count_and_length():
     alts = [(f"l{k}", f"Name{k}" * 3, False, False) for k in range(10)]
     out = pick_alt("X", "X", [f"l{k}" for k in range(10)], alts)
     assert len(out) <= 80 and out.count("|") <= 4
+
+
+def test_admin_names_are_dropped():
+    from whitexmas.export.places import is_admin_name
+
+    assert is_admin_name("Municipio Naucalpan de Juárez", "Naucalpan de Juárez")
+    assert is_admin_name("Municipalité de Bălţi", "Bălţi")
+    assert is_admin_name("Stadt Zürich", "Zürich")
+    assert is_admin_name("City of London", "London")
+    assert is_admin_name("Sapporo-shi", "Sapporo")
+    assert is_admin_name("Zürich District", "Zürich")
+    assert not is_admin_name("München", "Munich")
+    assert not is_admin_name("Monaco di Baviera", "Munich")
+    assert not is_admin_name("Mexico City", "Ciudad de México")  # exonym, not an admin unit
+    assert not is_admin_name("New York City", "New York")
+    assert is_admin_name("Chongqing (Chongqing Shi)", "Chongqing")
+    alts = [("es", "Municipio Naucalpan de Juárez", True, False), ("en", "Naucalpan", False, False)]
+    assert pick_alt("Naucalpan de Juárez", "Naucalpan de Juarez", ["es"], alts) == "Naucalpan"

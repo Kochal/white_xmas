@@ -17,8 +17,10 @@ try:  # `whitexmas projections …`, once the projections package is on this bra
     from .projections.cli import app as projections_app
 
     app.add_typer(projections_app, name="projections")
-except ImportError:  # pragma: no cover - depends on which branch is checked out
-    pass
+except ModuleNotFoundError as e:  # pragma: no cover - depends on which branch is checked out
+    # Only "the projections package is absent" is expected; re-raise anything else.
+    if e.name not in ("whitexmas.projections", "whitexmas.projections.cli"):
+        raise
 
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Path to pipeline.yaml")]
 
@@ -90,12 +92,20 @@ def ingest(config: ConfigOpt = None, force: bool = False, verbose: bool = False)
 
 
 @app.command()
-def indicators(config: ConfigOpt = None, force: bool = False, verbose: bool = False) -> None:
-    """Compute probabilities, change, trend and significance for every definition and window."""
+def indicators(
+    config: ConfigOpt = None,
+    force: bool = False,
+    threshold: Annotated[
+        str | None, typer.Option(help="Only this threshold id (e.g. calibrated, raw)")
+    ] = None,
+    verbose: bool = False,
+) -> None:
+    """Compute probabilities, change, trend and significance for every definition and window,
+    for every configured snow-depth threshold."""
     from .indicators import compute_all
 
     cfg, paths = _setup(config, verbose)
-    compute_all(cfg, paths, force=force)
+    compute_all(cfg, paths, force=force, only=threshold)
 
 
 @app.command()
@@ -138,6 +148,22 @@ def sanity(
 
 
 @app.command()
+def stations(config: ConfigOpt = None, verbose: bool = False) -> None:
+    """Check snow thresholds against GHCN-Daily weather stations (calibrates threshold_cm)."""
+    from .stations import run
+
+    cfg, paths = _setup(config, verbose)
+    res = run(cfg, paths)
+    cal = res["calibration"]
+    typer.echo(
+        f"{len(res['stations'])} stations ({cal['n_calibration']} for calibration); "
+        f"best whole-cm threshold: {cal['best_cm']} cm "
+        f"(bias {cal['stats'][cal['best_cm']]['bias_pp']:+.1f} pp, "
+        f"MAE {cal['stats'][cal['best_cm']]['mae_pp']:.1f} pp)"
+    )
+
+
+@app.command()
 def build(
     config: ConfigOpt = None,
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
@@ -149,7 +175,7 @@ def build(
     if not skip_download:
         download(config=config, years=None, parallel=6, static_only=False, verbose=verbose)
     ingest(config=config, force=False, verbose=verbose)
-    indicators(config=config, force=False, verbose=verbose)
+    indicators(config=config, force=False, threshold=None, verbose=verbose)
     export(
         config=config,
         web_out=web_out,

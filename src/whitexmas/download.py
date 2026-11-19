@@ -36,6 +36,7 @@ STATIC_VARIABLES = {
     "land_sea_mask": "lsm",
     "geopotential": "z",
     "glacier_mask": "glm",
+    "lake_cover": "cl",
 }
 NY, NX = 1801, 3600
 SNOW_VAR = "sde"
@@ -89,6 +90,7 @@ def plan_jobs(cfg: Config, paths: DataPaths, years: list[int] | None = None) -> 
         ("land_sea_mask", "land_sea_mask"),
         ("geopotential", "geopotential"),
         ("glacier_mask", "glacier_mask"),
+        ("lake_cover", "lake_cover"),
     ]:
         if d.get("static", {}).get(flag, True):
             jobs.append(
@@ -282,9 +284,8 @@ def run_job(
                 while not remote.results_ready:
                     sleep(poll)
             except Exception:
-                if remote.request_id != jid:
-                    raise
-                # The resumed job failed or expired: submit afresh on the next attempt.
+                # The job failed or expired (resumed or freshly submitted): forget it so the
+                # next attempt submits afresh instead of resuming a dead job.
                 manifest.update(job.key, job_id=None)
                 raise
             tmp = job.target.with_suffix(".part")

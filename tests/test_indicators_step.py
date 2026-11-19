@@ -65,3 +65,11 @@ def test_rerun_is_skipped(tmp_path, caplog):
     compute_all(cfg, paths)
     assert "up to date" in caplog.text
     assert paths.indicators.stat().st_mtime_ns == mtime
+
+
+def test_min_valid_fraction_invalidates_indicators():
+    from whitexmas.indicators import fingerprint
+
+    a = fingerprint(small_config(), "cube")
+    b = fingerprint(small_config(min_valid_fraction=0.99), "cube")
+    assert a != b

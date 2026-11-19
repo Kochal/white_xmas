@@ -22,6 +22,16 @@ MAX_ALT = 5
 MAX_ALT_CHARS = 80
 SEARCH_RADIUS = 2  # cells
 
+# Administrative words that turn a place name into the name of a municipality or district
+# ("Municipio Naucalpan de Juárez", "Municipalité de Bălţi", "Stadt Zürich", "City of London").
+ADMIN_WORDS = (
+    "municipio", "municipalidad", "municipalité", "municipality", "municipiul", "municipiu",
+    "município", "comune", "comuna", "commune", "gemeinde", "stadt", "landkreis", "kreis",
+    "city of", "town of", "borough of", "county", "district", "prefecture", "province",
+    "provincia", "département", "departamento", "distrito", "okrug", "rayon", "raion",
+    "oblast", "gmina", "obshtina", "kommune", "kommun", "kunta", "shi",
+)  # fmt: skip
+
 
 def cell_index(lat: float, lon: float, res: float = 0.1, nx: int = 3600) -> tuple[int, int]:
     """Contract: i = round((lon + 180) / 0.1) mod 3600, j = round((90 - lat) / 0.1)."""
@@ -109,6 +119,26 @@ def read_alternate_names(zip_path: Path, ids: set[int]) -> dict[int, list[tuple]
     return out
 
 
+def is_admin_name(alt: str, name: str, ascii_name: str = "") -> bool:
+    """True for administrative-unit names: they start with an administrative word, or contain
+    the place name together with one ("Stadt Zürich", "Zürich District", "Sapporo-shi")."""
+    a = unicodedata.normalize("NFC", alt).casefold()
+    words = [w.strip() for w in ADMIN_WORDS]
+    if any(a.startswith(w + " ") or a.startswith(w + "-") for w in words if w):
+        return True
+    bases = {unicodedata.normalize("NFC", x).casefold() for x in (name, ascii_name) if x}
+    if any(b and b in a and a != b for b in bases):
+        rest = a
+        for b in bases:
+            rest = rest.replace(b, " ")
+        for ch in "-,()[]/":
+            rest = rest.replace(ch, " ")
+        tokens = rest.split()
+        joined = " ".join(tokens)
+        return any(w in tokens or (" " in w and w in joined) for w in words)
+    return False
+
+
 def pick_alt(name: str, ascii_name: str, langs: list[str], alts: Iterable[tuple]) -> str:
     """Up to 5 alternate names (main official language, en/de/fr/es, other official ones).
 
@@ -133,7 +163,7 @@ def pick_alt(name: str, ascii_name: str, langs: list[str], alts: Iterable[tuple]
         if len(chosen) >= MAX_ALT:
             break
         for _, _, n in sorted(by_lang.get(lang, [])):
-            if not n or key(n) in seen or "|" in n:
+            if not n or key(n) in seen or "|" in n or is_admin_name(n, name, ascii_name):
                 continue
             if len("|".join([*chosen, n])) > MAX_ALT_CHARS:
                 continue
@@ -158,7 +188,11 @@ def build_places(
     definition: str,
     trend_alpha: float = 0.1,
     with_alt: bool = True,
+    extras: list[tuple[str, str, np.ndarray, np.ndarray]] | None = None,
 ) -> dict:
+    """``extras``: (then field, now field, p_then, p_now) for other thresholds (contract v1.5,
+    e.g. ``p_then_raw``/``p_now_raw``), appended after ``trend`` from the same cell."""
+    extras = extras or []
     cities = read_cities(ext_dir / "cities15000.zip")
     admin1 = read_admin1(ext_dir / "admin1CodesASCII.txt")
     langs = read_country_languages(ext_dir / "countryInfo.txt")
@@ -194,12 +228,16 @@ def build_places(
             _r1(p_now[cell]),
             _r1(trend[cell]) if sig else None,
         ]
+        for _, _, e_then, e_now in extras:
+            row += [_r1(e_then[cell]), _r1(e_now[cell])]
         rows.append(row)
     log.info("places: %d kept, %d dropped (no land cell within 2 cells)", len(rows), dropped)
     fields = ["name", "ascii", "country", "admin1"]
     if with_alt:
         fields.append("alt")
     fields += ["lat", "lon", "pop", "p_full", "p_then", "p_now", "trend"]
+    for f_then, f_now, _, _ in extras:
+        fields += [f_then, f_now]
     return {
         "fields": fields,
         "definition": definition,

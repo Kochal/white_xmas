@@ -33,6 +33,7 @@ def test_plan_one_job_per_year_plus_static(cfg: Config, tmp_path: Path):
         "static/land_sea_mask",
         "static/geopotential",
         "static/glacier_mask",
+        "static/lake_cover",
     }
 
 
@@ -115,3 +116,41 @@ def test_run_job_redownloads_corrupted_file(cfg, tmp_path, small_grid):
     dl.run_job(job, manifest, lambda: FakeClient([0], submits), sleep=lambda s: None)
     job.target.write_bytes(b"garbage")
     assert not dl.is_done(job, manifest)
+
+
+class FailingOnceRemote(FakeRemote):
+    """results_ready raises on the first poll of the first job, like a failed CDS job."""
+
+    def __init__(self, year, state):
+        super().__init__(year, [0])
+        self.request_id = f"job-{year}-{state['n']}"
+        self.state = state
+
+    @property
+    def results_ready(self):
+        if self.state["n"] == 1 and not self.state.get("failed"):
+            self.state["failed"] = True
+            raise RuntimeError("job failed")
+        return True
+
+
+def test_failed_fresh_job_is_not_resumed(cfg, tmp_path, small_grid):
+    paths = DataPaths(tmp_path)
+    job = next(j for j in dl.plan_jobs(cfg, paths, [2002]) if j.kind == "snow")
+    manifest = dl.Manifest(paths.download_manifest)
+    state = {"n": 0}
+    resumed = []
+
+    class Client:
+        def submit(self, dataset, request):
+            state["n"] += 1
+            return FailingOnceRemote(2002, state)
+
+        def get_remote(self, jid):
+            resumed.append(jid)
+            return FailingOnceRemote(2002, state)
+
+    out = dl.run_job(job, manifest, Client, max_retries=3, sleep=lambda s: None)
+    assert out == "done"
+    assert resumed == []  # the dead job-2002-1 was forgotten, not resumed
+    assert manifest.get(job.key)["job_id"] == "job-2002-2"

@@ -23,8 +23,20 @@ def small_config(**overrides) -> Config:
         "decades": True,
         "change": {"from": "2000_2009", "to": "2010_2019"},
     }
+    # the hand-computed synthetic cases assume a single 1 cm threshold
+    raw["thresholds"] = [{"id": "default", "cm": 1, "default": True}]
     raw.update(overrides)
     return Config(raw)
+
+
+def thresholds(default_cm: int, raw_cm: int | None = None, eq: int | None = None) -> list[dict]:
+    """A thresholds list: a default (optionally station-calibrated) plus an optional raw one."""
+    out = [{"id": "calibrated", "cm": default_cm, "default": True, "station_equivalent_cm": eq,
+            "label": "Calibrated", "description": "At least {cm} cm in ERA5-Land."}]  # fmt: skip
+    if raw_cm is not None:
+        out.append({"id": "raw", "cm": raw_cm, "label": "Raw",
+                    "description": "At least {cm} cm in ERA5-Land as published."})  # fmt: skip
+    return out
 
 
 def write_cube(path: Path, cube: np.ndarray, glacier_fraction: np.ndarray, years=YEARS):
