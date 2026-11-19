@@ -210,7 +210,7 @@ publishes it.
   colormap `probability`, kind `projection`.
 - `tiles/projchange__christmas_day__gwl{…}.pmtiles`: median change against 1996–2025 in
   percentage points, colormap `change`, hatched where the models do not agree (kind
-  `projection_change`, `hatch_low_agreement: true`; a proposed contract addition).
+  `projection_change`, `hatch_disagreement: true`; contract v1.2).
 - `proj/<tx>_<ty>.bin.gz`: `wx-proj-v1` point tiles (p10, median, p90 and agreement per level).
 - `$WHITEXMAS_DATA/products/projections/manifest_fragment.json`: the layer entries and the
   `projections` block, merged into `manifest.json` by `whitexmas.projections.export`.

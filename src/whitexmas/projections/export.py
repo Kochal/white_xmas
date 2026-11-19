@@ -146,10 +146,9 @@ def plan_layers(definitions: list[str], gwls: list[float], maxzoom: int = 6) -> 
                     "kind": "projection_change",
                     "definition": d,
                     "warming_level": float(g),
-                    "from": "1996_2025",
                     "url": f"tiles/{lid}.pmtiles",
                     "colormap": "change",
-                    "hatch_low_agreement": True,
+                    "hatch_disagreement": True,
                     "minzoom": 0,
                     "maxzoom": maxzoom,
                 }

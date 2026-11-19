@@ -69,6 +69,9 @@ def test_layer_ids_and_block_follow_the_contract(tmp_path):
     proj = next(ly for ly in layers if ly["id"] == "proj__christmas_day__gwl2.0")
     assert proj["kind"] == "projection" and proj["warming_level"] == 2.0
     assert proj["colormap"] == "probability" and proj["url"].endswith("gwl2.0.pmtiles")
+    chg = next(ly for ly in layers if ly["id"] == "projchange__christmas_day__gwl2.0")
+    assert chg["kind"] == "projection_change" and chg["colormap"] == "change"
+    assert chg["hatch_disagreement"] is True and "from" not in chg
     block = projections_block(["A", "B"], [1.5, 2.0, 3.0], "1996_2025")
     assert block["available"] is True
     assert [w["gwl"] for w in block["warming_levels"]] == [1.5, 2.0, 3.0]
