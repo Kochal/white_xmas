@@ -29,3 +29,24 @@ def test_variant_from_env_keeps_inputs_shared(tmp_path, monkeypatch):
 def test_variant_must_be_a_plain_name(bad):
     with pytest.raises(ValueError):
         ProjPaths(Path("."), bad)
+
+
+def test_variant_option_sets_the_env_var_for_the_subcommand(tmp_path, monkeypatch):
+    import os
+
+    from whitexmas.projections.cli import _main
+
+    # setenv first so that monkeypatch restores the original state (unset) afterwards: the
+    # callback writes os.environ directly and must not leak into other tests
+    monkeypatch.setenv(VARIANT_ENV, "")
+    _main(variant=" v2 ")
+    assert os.environ[VARIANT_ENV] == "v2"
+    assert (
+        ProjPaths.from_data(DataPaths(tmp_path)).products
+        == tmp_path / "products" / "projections_v2"
+    )
+    _main(variant=None)  # no option: leaves the environment as it is
+    assert os.environ[VARIANT_ENV] == "v2"
+    with pytest.raises(ValueError):
+        _main(variant="../escape")
+    assert os.environ[VARIANT_ENV] == "v2"
