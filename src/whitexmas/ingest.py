@@ -5,8 +5,13 @@ Output (``$WHITEXMAS_DATA/interim/snow_cube.zarr``):
 - ``snow_depth_cm[year, day, lat, lon]``: int16, daily-mean snow depth in whole centimetres
   (floored, so ``>= k cm`` on the cube is exactly ``>= k cm`` on the source for integer k),
   ``-1`` = nodata (ocean or missing). North-up (lat 90 → -90), lon -180 … 179.9.
-- ``land``: bool, cell has snow data in at least one year.
-- ``land_sea_mask``, ``glacier_fraction``: float32 fractions from the ERA5-Land invariants.
+- ``land``: bool, cell has snow data in at least one year and is not water.
+- ``land_sea_mask``, ``glacier_fraction``, ``lake_cover``: float32 fractions from the ERA5-Land
+  invariants.
+
+ERA5-Land also simulates snow on inland water with its lake model. Cells that are mostly water
+(``land_sea_mask < 0.5`` or ``lake_cover >= 0.5``) are set to nodata, so lakes such as Lake
+Michigan or Ladoga render as water, not as land with little snow.
 - ``orography_m``: float32 surface height (geopotential / g).
 
 Chunks are (all years, all days, 50, 50): one chunk per 5° point tile, which serves point access
@@ -36,7 +41,9 @@ NODATA = -1
 CHUNK = 50
 BAND = 50  # rows read per pass (multiple of CHUNK); ~80 MB of cube per pass
 G = 9.80665
-CUBE_VERSION = 1
+CUBE_VERSION = 2  # 2: water cells (sea or lake) masked to nodata
+LAND_MIN = 0.5  # land_sea_mask >= this is land
+LAKE_MAX = 0.5  # lake_cover >= this is water
 
 
 def lat_lon(ny: int, nx: int, res: float = 0.1) -> tuple[np.ndarray, np.ndarray]:
@@ -64,6 +71,21 @@ def _lon_order(lon: np.ndarray) -> np.ndarray:
 
 def _lat_order(lat: np.ndarray) -> np.ndarray:
     return np.argsort(-lat, kind="stable")
+
+
+def water_mask(
+    land_sea_mask: np.ndarray | None, lake_cover: np.ndarray | None
+) -> np.ndarray | None:
+    """True where a cell is mostly sea or lake; None if neither field is available."""
+    if land_sea_mask is None and lake_cover is None:
+        return None
+    shape = (land_sea_mask if land_sea_mask is not None else lake_cover).shape
+    water = np.zeros(shape, dtype=bool)
+    if land_sea_mask is not None:
+        water |= np.nan_to_num(land_sea_mask, nan=0.0) < LAND_MIN
+    if lake_cover is not None:
+        water |= np.nan_to_num(lake_cover, nan=0.0) >= LAKE_MAX
+    return water
 
 
 def _read_static(path: Path, var: str, lat_idx: np.ndarray, lon_idx: np.ndarray) -> np.ndarray:
@@ -185,6 +207,29 @@ def build_cube(
             ):
                 raise ValueError(f"{h.filepath()}: grid differs from the first file")
             order[id(h)] = (li, lo)
+    statics = {
+        "land_sea_mask": ("land_sea_mask", 1.0, {"units": "1"}),
+        "glacier_mask": ("glacier_fraction", 1.0, {"units": "1"}),
+        "geopotential": ("orography_m", 1.0 / G, {"units": "m"}),
+        "lake_cover": ("lake_cover", 1.0, {"units": "1"}),
+    }
+    static_arrays: dict[str, np.ndarray] = {}
+    for src in statics:
+        p = static_dir / f"{src}.nc"
+        if not p.exists():
+            log.warning("static field %s missing; skipping", p)
+            continue
+        with netCDF4.Dataset(p) as ds:
+            s_lat = np.asarray(ds["latitude"][:], dtype="float64")
+            s_lon = np.asarray(ds["longitude"][:], dtype="float64")
+        arr = _read_static(p, STATIC_VARIABLES[src], _lat_order(s_lat), _lon_order(s_lon))
+        if arr.shape != (ny, nx):
+            raise ValueError(f"{p}: shape {arr.shape} != {(ny, nx)}")
+        static_arrays[src] = arr
+    water = water_mask(static_arrays.get("land_sea_mask"), static_arrays.get("lake_cover"))
+    if water is None:
+        log.warning("no land-sea mask or lake cover: water cells keep their snow data")
+
     land = np.zeros((ny, nx), dtype=bool)
     try:
         for j0 in range(0, ny, band):
@@ -205,6 +250,8 @@ def build_cube(
                         day += 1
                 if day != 3:
                     raise ValueError(f"year {y}: expected 3 days, got {day}")
+            if water is not None:
+                buf[:, :, water[j0:j1]] = NODATA
             cube[:, :, j0:j1, :] = buf
             land[j0:j1] = (buf != NODATA).any(axis=(0, 1))
             log.info("ingest: rows %d-%d of %d", j0, j1, ny)
@@ -224,23 +271,12 @@ def build_cube(
         )
         z.attrs.update(a)
 
-    put2d("land", land, "bool", False, long_name="cell has snow data in at least one year")
-    statics = {
-        "land_sea_mask": ("land_sea_mask", 1.0, {"units": "1"}),
-        "glacier_mask": ("glacier_fraction", 1.0, {"units": "1"}),
-        "geopotential": ("orography_m", 1.0 / G, {"units": "m"}),
-    }
-    for src, (name, scale, a) in statics.items():
-        p = static_dir / f"{src}.nc"
-        if not p.exists():
-            log.warning("static field %s missing; skipping", p)
-            continue
-        with netCDF4.Dataset(p) as ds:
-            s_lat = np.asarray(ds["latitude"][:], dtype="float64")
-            s_lon = np.asarray(ds["longitude"][:], dtype="float64")
-        arr = _read_static(p, STATIC_VARIABLES[src], _lat_order(s_lat), _lon_order(s_lon))
-        if arr.shape != (ny, nx):
-            raise ValueError(f"{p}: shape {arr.shape} != {(ny, nx)}")
+    put2d(
+        "land", land, "bool", False,
+        long_name="cell has snow data in at least one year and is not mostly sea or lake",
+    )  # fmt: skip
+    for src, arr in static_arrays.items():
+        name, scale, a = statics[src]
         put2d(name, arr * scale, "float32", np.nan, **a)
 
     for name, vals, unit in [

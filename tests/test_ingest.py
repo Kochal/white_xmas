@@ -61,6 +61,9 @@ def test_build_cube_orients_rolls_and_masks(tmp_path: Path):
     _static(static / "glacier_mask.nc", "glm", glm)
     _static(static / "land_sea_mask.nc", "lsm", np.where(np.isnan(field), 0.0, 1.0))
     _static(static / "geopotential.nc", "z", np.full((NY, NX), 9.80665 * 1000))
+    lake = np.zeros((NY, NX))
+    lake[2, 2] = 0.8  # a lake cell: ERA5-Land has snow there, but it is water
+    _static(static / "lake_cover.nc", "cl", lake)
 
     out = build_cube([2000, 2001], files, static, tmp_path / "cube.zarr", band=4, chunk=2)
     ds = open_cube(out)
@@ -72,8 +75,21 @@ def test_build_cube_orients_rolls_and_masks(tmp_path: Path):
         np.testing.assert_array_equal(cube[yi, :, 1, 1], [5, 6, 7])
         np.testing.assert_array_equal(cube[yi, :, 5, 3], [200, 201, 202])
         assert (cube[yi, :, :, -1] == NODATA).all()
-    assert ds["land"].values[:, :-1].all() and not ds["land"].values[:, -1].any()
+        assert (cube[yi, :, 2, 2] == NODATA).all()  # lake masked
+    land = ds["land"].values
+    assert not land[:, -1].any() and not land[2, 2]
+    assert land[:, :-1].sum() == NY * (NX - 1) - 1
+    assert ds["lake_cover"].values[2, 2] == np.float32(0.8)
     assert ds["glacier_fraction"].values[5, 3] == 1.0
     assert ds["glacier_fraction"].values[0, 0] == 0.0
     assert ds["land_sea_mask"].values[0, -1] == 0.0
     np.testing.assert_allclose(ds["orography_m"].values, 1000.0, rtol=1e-6)
+
+
+def test_water_mask_rules():
+    from whitexmas.ingest import water_mask
+
+    lsm = np.array([1.0, 0.6, 0.4, 1.0, np.nan])
+    cl = np.array([0.0, 0.49, 0.0, 0.5, 0.0])
+    assert water_mask(lsm, cl).tolist() == [False, False, True, True, True]
+    assert water_mask(None, None) is None

@@ -28,6 +28,7 @@ download:
     land_sea_mask: true
     geopotential: true
     glacier_mask: true
+    lake_cover: true      # inland water: cells with lake_cover >= 0.5 are treated as water
 
 threshold_cm: 1
 

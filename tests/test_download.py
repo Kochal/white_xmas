@@ -33,6 +33,7 @@ def test_plan_one_job_per_year_plus_static(cfg: Config, tmp_path: Path):
         "static/land_sea_mask",
         "static/geopotential",
         "static/glacier_mask",
+        "static/lake_cover",
     }
 
 
