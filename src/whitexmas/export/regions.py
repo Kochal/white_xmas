@@ -1,4 +1,12 @@
-"""regions.json: area-weighted (cos lat) country statistics from Natural Earth admin-0 1:10m."""
+"""regions.json: area-weighted (cos lat) country statistics from Natural Earth admin-0 1:10m.
+
+Key: the ISO 3166 alpha-3 code, taken from ``ISO_A3``, else ``ISO_A3_EH`` (France and Norway are
+-99 in ``ISO_A3``), else Natural Earth's own ``ADM0_A3`` (Kosovo, Somaliland, N. Cyprus, …).
+Natural Earth splits a few countries into several features that share that key (Kazakhstan and
+the leased Baikonur area; Australia and its small island territories; France and Clipperton;
+Brazil and the Brazilian Island). Those parts are dissolved into one row, named after the part
+with the most land cells, so ``iso_a3`` is unique in regions.json.
+"""
 
 from __future__ import annotations
 
@@ -70,14 +78,21 @@ def build_regions(
     windows: dict[str, str],
 ) -> dict:
     countries = read_countries(ext_dir / NE_ZIP)
-    idx = rasterize_countries(countries, *p_then.shape)
-    then, now, ws = regional_means(idx, p_then, p_now, glacier, lat, len(countries))
+    feature_idx = rasterize_countries(countries, *p_then.shape)
+    keys = sorted({c["iso_a3"] for c in countries})
+    group_of = np.array([keys.index(c["iso_a3"]) for c in countries] + [-1], dtype="int32")
+    idx = group_of[feature_idx]  # feature -1 (no country) maps to the trailing -1
+    then, now, ws = regional_means(idx, p_then, p_now, glacier, lat, len(keys))
+    # name each group after its feature with the most cells
+    counts = np.bincount(feature_idx[feature_idx >= 0], minlength=len(countries))
     rows = []
-    for k, c in enumerate(countries):
-        if ws[k] <= 0:
+    for g, key in enumerate(keys):
+        if ws[g] <= 0:
             continue
-        a, b = round(float(then[k]), 1), round(float(now[k]), 1)
-        rows.append([c["iso_a3"], c["name"], a, b, round(b - a, 1)])
+        members = [k for k, c in enumerate(countries) if c["iso_a3"] == key]
+        name = countries[max(members, key=lambda k: counts[k])]["name"]
+        a, b = round(float(then[g]), 1), round(float(now[g]), 1)
+        rows.append([key, name, a, b, round(b - a, 1)])
     rows.sort(key=lambda r: r[1])
     log.info("regions: %d countries with land cells", len(rows))
     return {
