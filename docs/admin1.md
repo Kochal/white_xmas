@@ -146,7 +146,7 @@ them, and must work without them.
 }
 ```
 
-### admin1/index.json (always loaded with the layer; ~200 kB gzip)
+### admin1/index.json (always loaded with the layer; 132 kB gzip)
 
 ```jsonc
 {
@@ -197,7 +197,7 @@ PMTiles vector tiles were considered: the site already uses PMTiles for rasters,
 vector tiles needs tippecanoe, which is not available on the pipeline's Windows host; a single
 GeoJSON within 1.5 MB gzip is simpler and is enough for 4,000 polygons.
 
-### admin1/c/{country}.json (loaded when a region is opened; ≤ ~150 kB gzip)
+### admin1/c/{country}.json (loaded when a region is opened; ≤ 70 kB gzip)
 
 ```jsonc
 {
@@ -263,6 +263,63 @@ made up (a smooth function of latitude), `data_version: "sample"`. Regenerate wi
 `uv run whitexmas admin1 sample`. The website copies it into its own fixture tree; it is never
 real data.
 
+## Results (data version 2025.1, built 2026-11-19)
+
+Run on the full ERA5-Land cube and the shipped indicators and projections (19 models). Values:
+calibrated 5 cm threshold, snow on Christmas Day, 1996–2025 unless stated; trend over
+1950–2025 with its Mann-Kendall p. "City" is the main city's own cell, as in the city search.
+
+| Region | Area-weighted | Population-weighted | p5–p95 | Area ≥ 50 % | 1961–1990 | Trend (pp/decade) | +2 °C (median) | City |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Bavaria (DE-BY) | 27.8 % | 23.5 % | 7–87 | 16 % | 45.4 % | −5.5 (p < 0.001) | 22.6 % | Munich 26.7 % |
+| Minnesota (US-MN) | 77.8 % | 63.4 % | 53–97 | 99 % | 87.8 % | −2.2 (p 0.20) | 69.9 % | Minneapolis 63.3 % |
+| Ontario (CA-ON) | 95.6 % | 51.8 % | 70–100 | 98 % | 97.6 % | −0.3 (p 0.31) | 91.7 % | Toronto 36.7 % |
+| Hokkaido (JP-01) | 94.1 % | 91.1 % | 67–100 | 99 % | 90.5 % | +0.7 (p 0.15) | 90.5 % | Sapporo 100 % |
+| Tyrol (AT-7) | 97.9 % | 93.3 % | 93–100 | 100 % | 100 % | −0.5 (p 0.009) | 94.9 % | Innsbruck 93.3 % |
+| Lapland (FI-10) | 99.9 % | 97.7 % | 100–100 | 100 % | 100 % | 0.0 (p 0.76) | 99.0 % | Rovaniemi 100 % |
+| Lombardy (IT-25) | 31.7 % | 9.9 % | 0–97 | 30 % | 37.8 % | −1.7 (p 0.03) | 26.7 % | Milan 10.0 % |
+| Scotland (GB-SCT) | 7.9 % | 2.0 % | 0–27 | 0 % | 15.7 % | −1.5 (p 0.005) | 5.9 % | – |
+
+What this shows:
+
+- **The population view matters where people live in the valleys or lowlands.** Lombardy is
+  32 % white by area (the Alps) but 10 % where people live (the Po plain, Milan 10 %); Ontario
+  is 96 % by area (the boreal north) but 52 % by population (the south, Toronto 37 %).
+- **The city cross-check passes**: the population-weighted value sits next to the main city's
+  value (Munich 27 / Bavaria 23.5, Minneapolis 63 / Minnesota 63, Innsbruck 93 / Tyrol 93,
+  Milan 10 / Lombardy 10), and every city lies inside its region's p5–p95 except Toronto, which
+  is in the warmest 5 % of Ontario's area. That is expected, not an error.
+- **Bavaria** has lost the most of these: from 45 % (1961–1990) to 28 % (1996–2025), −5.5 pp
+  per decade, clearly significant; **Minnesota's** decline (−2.2 pp per decade) is not
+  significant over 76 noisy years.
+
+Coverage: 3,988 regions; 3,736 have values. 252 (mostly small islands in the Seychelles,
+Maldives, Bahamas, Anguilla, Nauru, Bermuda and the Cook Islands, up to the 946 km² of
+Kiribati's atolls and the 816 km² Chatham Islands) have no ERA5-Land land cell inside or within
+2 cells (`no_land`, values `null`); 47 coastal cities and small islands take the nearest land
+cell (`nearest_cell`, e.g. Gibraltar, Beirut, Conakry, Lantau Island); 524 regions are
+`low_res` (under 3 cells). No region is all glacier. The population-weighted value is
+`null` for 979 regions without a GeoNames place of 15,000+ inhabitants. 34,175 of the 34,177
+places fall in a region.
+
+The regional window value equals the mean of the regional yearly series over the same years
+(difference below 0.001 pp for every region, threshold, definition and window checked), and the
+projection baseline equals the 1996–2025 value, as they should.
+
+### Timings and sizes (measured)
+
+On the pipeline workstation, one step at a time:
+
+| Step | Wall time | Output |
+| --- | --- | --- |
+| `admin1 weights` | 34 s (fractions 23 s) | 2.33 million region-cell entries, `interim/admin1/` 16 MB |
+| `admin1 stats` | 118 s (windows 31 s, cube pass 64 s, projections 20 s) | `interim/admin1/stats.npz` 4.9 MB |
+| `admin1 export` | 13 s | 254 web files, 24.1 MB (3.39 MB gzip); CSV 4.9 MB |
+
+Web files: `index.json` 0.6 MB (132 kB gzip), `boundaries.json` 5.1 MB (1.43 MB gzip), the
+largest country file Latvia (119 municipalities) 69 kB gzip. The data bundle grows by 24 MB (it
+was 203 MB of the 400 MB budget).
+
 ## Limitations
 
 - **Resolution.** A 0.1° cell is about 9 km; small regions (`low_res`) rest on a handful of
@@ -275,3 +332,11 @@ real data.
 - **Borders.** Natural Earth 1:10m borders are generalised and some are disputed; the regions
   are statistical units, not a statement about sovereignty.
 - **Population weighting** uses places with at least 15,000 inhabitants only (see above).
+- **Small islands** without an ERA5-Land land cell have no values (252 regions, see above).
+- **Projections inherit the map's small-probability floor.** A model cell with no snow in
+  either window gets a slightly positive log-odds change from the Jeffreys smoothing, because
+  the baseline counts 30 years and the warming-level window 20 (logit(0.5/21) − logit(0.5/31)).
+  A place at 0 % today is therefore projected at about 0.8 % (Florida 0.0 → 0.8 %; London's
+  "0 → 1 %" in projections.md is the same effect), and an always-white place drops to 99.2 %
+  with no change in the model at all. This comes from the projection method, not from the regional
+  averaging, and is reported for a fix there.
