@@ -693,6 +693,26 @@ per-model files carry no `estimator`, so `whitexmas projections ensemble` refuse
   (D-12), so nothing is double counted. But hot models are already near +1.5 °C in those years,
   so their +1.5 °C change is small; the ensemble mixes "how much warmer" with "how sensitive the
   model is". See §3 for the warming-level-baseline alternative.
+- **Snowy places: the decline is a lower bound.** A model that is white in nearly every year
+  carries almost no information about change: 20 years cannot tell 99 % from 97 %. Such a
+  model's number therefore leans towards "no change". At the snowy edge, a single model's median
+  error is about 2 pp towards too little decline, so in snowy places the projected decline is a
+  lower bound. The estimator removes the systematic bias when nothing changes, but not this
+  loss of information.
+
+  Error of one model's projected probability (pp), from the exact binomial distribution of the
+  white-year counts (30-year baseline, 20-year window, ERA5-Land baseline equal to the true
+  baseline):
+
+  | true frequency, baseline → window | per-window `n` (old): median / mean | common `m` (used): median / mean |
+  |---|---|---|
+  | 95 % → 95 % (no change) | −2.95 / −3.99 | **0.00** / −2.15 |
+  | 98 % → 95 % | +1.2 / −3.6 | +1.9 / −1.1 |
+  | 99 % → 97 % | +0.75 / −2.3 | +2.0 / −0.4 |
+
+  The common-`m` estimator is median-unbiased when nothing changes and has the smaller mean
+  error in every row. The unequal-window hindcast shows the same tendency: its 90–100 % bin
+  forecasts 99.4 % against 98.3 % observed.
 - **Snow amount, not depth.** Models provide snow water equivalent; the 1 cm threshold is
   converted with an assumed density (§4). The change transfer makes the result insensitive to
   the exact value.
