@@ -1,9 +1,9 @@
 # Future projections: white Christmas at +1.5, +2 and +3 °C
 
-Status: **Phase 1 done; Phase 2 built and validated on ERA5-Land 1996–2025 with a hindcast; the
-export on the real baseline waits for the pipeline's `indicators.zarr`.**
-This page is the working document for the projections track (plan §3b, milestones P1–P2). The
-method, model list, skill table and limitations sections are filled in as Phase 2 lands.
+Status: **P1 and P2 done: validated on ERA5-Land 1996–2025 with a hindcast, built and exported on the
+real baseline (2026-11-19).**
+This page is the working document for the projections track (plan §3b, milestones P1–P2) and
+the source for the methodology page's Future section.
 
 ## In one paragraph
 
@@ -235,16 +235,79 @@ does not record a real ERA5-Land reference.
   `whitexmas.projections.export.manifest_fragment`); `--patch-manifest` merges it directly.
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
-Sizes with the placeholder baseline: about 2.8 MB per layer (6 layers) and 3.4 MB of point tiles.
+Sizes on the real baseline: 15.6 MB for the 6 layers and 1.6 MB of point tiles.
 
 Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
+
+## Results (real baseline, 2026-11-19)
+
+Built on the pipeline's ERA5-Land indicators (1996–2025, `christmas_day`) with the 19 selected
+models. Median projected probability, with the 10–90 % model range in brackets. ¹ = fewer than
+two thirds of the models agree on the direction of change (hatched on the change map).
+
+| Place | Today (1996–2025) | +1.5 °C | +2 °C | +3 °C |
+|---|---|---|---|---|
+| Oslo | 77 % | 72 % (58–82) | 67 % (52–77) | 46 % (34–77) |
+| Stockholm | 60 % | 57 % (40–63) | 40 % (27–59) | 32 % (15–44) |
+| Helsinki | 70 % | 67 % (50–72) | 55 % (41–63) | 40 % (29–54) |
+| Moscow | 93 % | 90 % (83–92) | 85 % (74–91) | 72 % (46–85) |
+| Warsaw | 40 % | 36 % (22–42) | 30 % (17–39) | 21 % (9–33) |
+| Berlin | 27 % | 23 % (13–33) ¹ | 18 % (10–30) | 11 % (4–22) |
+| Prague | 30 % | 25 % (14–30) | 21 % (14–29) | 16 % (8–21) |
+| Vienna | 33 % | 27 % (18–33) | 27 % (16–37) | 17 % (9–28) |
+| Munich | 63 % | 56 % (42–65) | 52 % (39–63) | 39 % (26–55) |
+| Zurich | 53 % | 45 % (33–58) | 39 % (26–54) | 27 % (16–36) |
+| Innsbruck | 100 % | 99 % (97–100) | 99 % (96–100) | 96 % (93–99) |
+| London | 7 % | 9 % (4–10) | 8 % (3–11) ¹ | 6 % (2–10) ¹ |
+| Montreal | 87 % | 82 % (71–86) | 75 % (65–86) | 66 % (50–82) |
+| Toronto ² | 67 % | 60 % (48–69) | 56 % (40–69) | 45 % (27–57) |
+| Minneapolis | 97 % | 95 % (90–97) | 93 % (84–98) | 88 % (74–93) |
+| Chicago | 57 % | 53 % (38–63) ¹ | 50 % (31–61) | 33 % (23–50) |
+| Boston | 43 % | 40 % (28–51) ¹ | 36 % (21–47) | 23 % (13–35) |
+| New York | 23 % | 19 % (13–29) ¹ | 17 % (7–25) | 13 % (4–21) |
+| Denver | 90 % | 88 % (78–92) | 82 % (72–90) | 82 % (69–89) |
+| Sapporo | 100 % | 99 % (98–100) | 99 % (97–100) | 95 % (88–99) |
+
+² Toronto's own ERA5-Land cell is Lake Ontario, which the baseline counts as 0 % (lake cells
+carry no snow in ERA5-Land); the row uses the land cell just north of the shore (43.7 °N).
+Innsbruck and Sapporo show the 9 km cell, which includes the surrounding mountains or the snowy
+hinterland; a valley floor or the city centre is less snowy than that.
+
+What the numbers say:
+
+- **The decline is gradual at +1.5 °C and clear by +2 °C.** Over land 25–75 °N, in places where a
+  white Christmas is uncertain today (10–90 %), the average probability falls from 50 % today
+  to 46 % at +1.5 °C, 42 % at +2 °C and 35 % at +3 °C. Models agree on the direction in 63 %,
+  80 % and 89 % of those places.
+- **Mid-latitude cities lose the most:** Stockholm 60 → 40 % at +2 °C, Chicago 57 → 33 % at
+  +3 °C, Berlin 27 → 11 % at +3 °C.
+- **Cold or high places barely change** (Moscow, Minneapolis, Innsbruck, Sapporo): snow cover
+  there stays reliable even several degrees warmer.
+- **Mild places with rare Christmas snow** (London 7 %) change little in absolute terms, and the
+  models do not agree on the direction.
+- The ranges are wide. This is mostly year-to-year weather inside each model's 20-year window, not
+  disagreement about the physics; it is why the site shows the band, not just the median.
+
+### Products
+
+- `tiles/proj__christmas_day__gwl{1.5,2.0,3.0}.pmtiles` and
+  `tiles/projchange__christmas_day__gwl{…}.pmtiles`: 6 layers, 15.6 MB, 3160 tiles each (z0–6,
+  lossless WebP, same renderer and colours as the historical layers).
+- `proj/<tx>_<ty>.bin.gz`: 1401 `wx-proj-v1` point tiles, 1.6 MB.
+- `manifest_fragment.json` (not a placeholder): 6 layers and the `projections` block with
+  `warming_levels` "around the 2030s", "around the 2040s", and for +3 °C "late this century or
+  later; most models reach it only under SSP5-8.5".
+- COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
+
+Staged in `$WHITEXMAS_DATA/products/projections/web/` (`tiles/`, `proj/`). For the published
+bundle they go into the pipeline's web-out, and `whitexmas export` lists them through
+`manifest_fragment` (this needs a checkout that contains both the pipeline and the projections
+package).
 
 ## Validation and model selection
 
 Three checks per model, all scored over land 25–75 °N (where Christmas snow varies), weighted by
-cos(latitude), on each model's own grid (ERA5-Land is aggregated to it). Glacier cells are
-excluded once the pipeline's glacier mask exists; the runs below predate it (always-white cells
-add almost nothing to these scores either way).
+cos(latitude), glacier cells excluded, on each model's own grid (ERA5-Land is aggregated to it).
 
 - **Frequency pattern:** the model's white-Christmas frequency against ERA5-Land for the same
   years: mean bias, mean absolute error (all cells, and the "transition" cells where ERA5-Land is
@@ -262,37 +325,38 @@ add almost nothing to these scores either way).
 is dropped if its snow amount is outside 0.25–4 × ERA5-Land, its pattern correlation is below 0.80,
 or its transition-cell error exceeds 35 pp.
 
-### Results (ERA5-Land 1996–2025, 2026-11-19)
+### Skill table (ERA5-Land 1996–2025)
 
 Model frequencies are for each model's 1996–2025 baseline (historical + SSP2-4.5, Christmas ± 7
-days, threshold 2.5 kg m⁻²); ERA5-Land is Christmas Day, read from the raw downloads (the
-pipeline's cube did not exist yet). Snow amount compares 1961–1990 (ERA5-Land median Christmas
+days, threshold 2.5 kg m⁻²); ERA5-Land is Christmas Day from the pipeline's snow cube, with its
+glacier mask. (A first run on the raw downloads, without the glacier mask, gave identical skill
+scores: glacier cells score zero in every forecast.) Snow amount compares 1961–1990 (ERA5-Land median Christmas
 SWE at 40–60 °N: 64 kg m⁻² at 250 kg m⁻³). The hindcast column is each model's own Brier skill.
 An interim run on 1961–1990 gave the same selection and very similar scores.
 
 | Model | Grid | Model % | ERA5-Land % | Bias (pp) | MAE (pp) | MAE transition (pp) | Corr. | SWE ratio | Hindcast BSS | Used |
 |---|---|---|---|---|---|---|---|---|---|---|
-| ACCESS-CM2 | 144x192 | 74 | 65 | +8.9 | 10.2 | 24.2 | 0.91 | 10.15 | – | **no** |
-| ACCESS-ESM1-5 | 145x192 | 55 | 65 | -9.5 | 11.5 | 25.9 | 0.90 | 0.54 | -0.8 % | yes |
-| AWI-CM-1-1-MR | 192x384 | 49 | 66 | -17.2 | 17.6 | 30.9 | 0.84 | 0.43 | -0.1 % | yes |
-| BCC-CSM2-MR | 160x320 | 60 | 65 | -5.2 | 8.4 | 19.4 | 0.93 | 0.68 | +1.2 % | yes |
-| CanESM5 | 64x128 | 65 | 65 | -0.3 | 8.1 | 18.6 | 0.93 | 0.62 | -0.1 % | yes |
-| CESM2 | 192x288 | 60 | 66 | -6.2 | 8.5 | 21.6 | 0.94 | 0.62 | +0.7 % | yes |
-| EC-Earth3 | 256x512 | 68 | 66 | +2.0 | 5.1 | 12.8 | 0.97 | 0.6 | -3.1 % | yes |
-| EC-Earth3-Veg | 256x512 | 68 | 66 | +2.0 | 5.0 | 12.7 | 0.97 | 0.56 | -0.9 % | yes |
-| GFDL-CM4 | 180x288 | 58 | 65 | -7.3 | 9.4 | 21.7 | 0.93 | 0.57 | +0.2 % | yes |
-| GFDL-ESM4 | 180x288 | 57 | 65 | -8.3 | 10.1 | 21.7 | 0.92 | 0.55 | -2.2 % | yes |
-| HadGEM3-GC31-LL | 144x192 | 58 | 65 | -7.9 | 9.2 | 20.6 | 0.94 | 0.44 | +0.4 % | yes |
-| INM-CM4-8 | 120x180 | 55 | 66 | -11.1 | 13.0 | 25.7 | 0.87 | 0.64 | -2.9 % | yes |
-| INM-CM5-0 | 120x180 | 54 | 66 | -12.0 | 13.6 | 26.8 | 0.87 | 0.6 | -3.0 % | yes |
-| IPSL-CM6A-LR | 143x144 | 65 | 65 | -0.1 | 5.5 | 13.4 | 0.96 | 0.68 | -0.5 % | yes |
-| MIROC-ES2L | 64x128 | 59 | 65 | -6.4 | 11.4 | 22.3 | 0.89 | 0.52 | -0.5 % | yes |
-| MIROC6 | 128x256 | 59 | 66 | -6.3 | 9.4 | 21.6 | 0.92 | 0.61 | +1.2 % | yes |
-| MPI-ESM1-2-HR | 192x384 | 52 | 66 | -14.3 | 14.9 | 26.6 | 0.86 | 0.45 | -1.7 % | yes |
-| MPI-ESM1-2-LR | 96x192 | 53 | 65 | -12.3 | 13.6 | 24.7 | 0.87 | 0.49 | +0.5 % | yes |
-| MRI-ESM2-0 | 160x320 | 63 | 65 | -1.2 | 7.8 | 19.5 | 0.93 | 0.66 | -1.2 % | yes |
-| NESM3 | 96x192 | 46 | 64 | -17.6 | 18.4 | 31.9 | 0.82 | 0.18 | – | **no** |
-| UKESM1-0-LL | 144x192 | 59 | 65 | -6.2 | 8.6 | 18.4 | 0.93 | 0.35 | -1.9 % | yes |
+| ACCESS-CM2 | 144x192 | 74 | 65 | +9.0 | 10.4 | 24.2 | 0.91 | 10.15 | – | **no** |
+| ACCESS-ESM1-5 | 145x192 | 54 | 64 | -9.7 | 11.8 | 25.9 | 0.90 | 0.54 | -0.8 % | yes |
+| AWI-CM-1-1-MR | 192x384 | 49 | 65 | -15.6 | 16.0 | 30.9 | 0.88 | 0.43 | -0.1 % | yes |
+| BCC-CSM2-MR | 160x320 | 59 | 64 | -5.3 | 8.6 | 19.4 | 0.93 | 0.68 | +1.2 % | yes |
+| CanESM5 | 64x128 | 64 | 65 | -0.3 | 8.3 | 18.6 | 0.93 | 0.62 | -0.1 % | yes |
+| CESM2 | 192x288 | 59 | 65 | -6.3 | 8.7 | 21.6 | 0.93 | 0.62 | +0.7 % | yes |
+| EC-Earth3 | 256x512 | 67 | 65 | +2.1 | 5.2 | 12.8 | 0.97 | 0.6 | -3.1 % | yes |
+| EC-Earth3-Veg | 256x512 | 67 | 65 | +2.0 | 5.1 | 12.7 | 0.97 | 0.56 | -0.9 % | yes |
+| GFDL-CM4 | 180x288 | 57 | 64 | -7.4 | 9.6 | 21.8 | 0.92 | 0.57 | +0.2 % | yes |
+| GFDL-ESM4 | 180x288 | 56 | 65 | -8.4 | 10.3 | 21.7 | 0.92 | 0.55 | -2.2 % | yes |
+| HadGEM3-GC31-LL | 144x192 | 57 | 65 | -8.0 | 9.4 | 20.6 | 0.94 | 0.44 | +0.4 % | yes |
+| INM-CM4-8 | 120x180 | 55 | 65 | -10.1 | 12.0 | 25.6 | 0.90 | 0.64 | -2.9 % | yes |
+| INM-CM5-0 | 120x180 | 54 | 65 | -11.0 | 12.6 | 26.8 | 0.90 | 0.6 | -3.0 % | yes |
+| IPSL-CM6A-LR | 143x144 | 65 | 65 | -0.1 | 5.6 | 13.4 | 0.96 | 0.68 | -0.5 % | yes |
+| MIROC-ES2L | 64x128 | 58 | 64 | -6.5 | 11.6 | 22.3 | 0.89 | 0.52 | -0.5 % | yes |
+| MIROC6 | 128x256 | 58 | 65 | -6.5 | 9.6 | 21.6 | 0.92 | 0.61 | +1.2 % | yes |
+| MPI-ESM1-2-HR | 192x384 | 53 | 65 | -12.6 | 13.2 | 26.6 | 0.90 | 0.45 | -1.7 % | yes |
+| MPI-ESM1-2-LR | 96x192 | 53 | 64 | -10.7 | 11.9 | 24.6 | 0.91 | 0.49 | +0.5 % | yes |
+| MRI-ESM2-0 | 160x320 | 63 | 64 | -1.2 | 8.0 | 19.5 | 0.93 | 0.66 | -1.2 % | yes |
+| NESM3 | 96x192 | 47 | 63 | -16.1 | 16.9 | 31.9 | 0.86 | 0.18 | – | **no** |
+| UKESM1-0-LL | 144x192 | 58 | 65 | -6.3 | 8.7 | 18.4 | 0.93 | 0.35 | -1.9 % | yes |
 
 - **Dropped: ACCESS-CM2.** Its Christmas snowpack is ten times ERA5-Land's (median 646 kg m⁻²;
   at Chicago often more than 1 m of snow on Christmas Day): it practically never melts, so its
@@ -317,12 +381,12 @@ ERA5-Land observed in 1996–2025 (land 25–75 °N, 19 models):
 
 | Forecast for 1996–2025 | Brier score | Skill vs "no change" |
 |---|---|---|
-| No change (ERA5-Land 1961–1990) | 0.0567 | 0 |
-| **Ensemble median (this method)** | **0.0550** | **+3.1 %** |
-| Single models | 0.0560–0.0585 | −3.2 % to +1.2 % |
-| Perfect: the observed 1996–2025 frequency | 0.0515 | +9.2 % (the ceiling) |
+| No change (ERA5-Land 1961–1990) | 0.0579 | 0 |
+| **Ensemble median (this method)** | **0.0561** | **+3.1 %** |
+| Single models | 0.0572–0.0597 | -3.1 % to +1.2 % |
+| Perfect: the observed 1996–2025 frequency | 0.0526 | +9.1 % (the ceiling) |
 
-Mean change over the region: observed -2.7 pp, ensemble median
+Mean change over the region: observed -2.8 pp, ensemble median
 -1.8 pp.
 
 What this says, in plain words:
@@ -340,16 +404,16 @@ What this says, in plain words:
 
 | Forecast bin | Forecast % | Observed % | Share of area |
 |---|---|---|---|
-| 0-10 % | 1.3 | 1.4 | 21.7 % |
-| 10-20 % | 14.6 | 12.9 | 4.2 % |
-| 20-30 % | 24.9 | 22.0 | 3.3 % |
-| 30-40 % | 34.9 | 32.4 | 3.0 % |
-| 40-50 % | 44.8 | 42.8 | 2.4 % |
+| 0-10 % | 1.3 | 1.4 | 22.1 % |
+| 10-20 % | 14.6 | 12.9 | 4.3 % |
+| 20-30 % | 24.9 | 22.0 | 3.4 % |
+| 30-40 % | 34.9 | 32.4 | 3.1 % |
+| 40-50 % | 44.8 | 42.8 | 2.5 % |
 | 50-60 % | 55.0 | 51.2 | 2.2 % |
-| 60-70 % | 65.1 | 60.9 | 2.4 % |
-| 70-80 % | 75.3 | 72.1 | 3.0 % |
-| 80-90 % | 85.1 | 81.7 | 4.1 % |
-| 90-100 % | 99.3 | 98.9 | 53.7 % |
+| 60-70 % | 65.1 | 60.9 | 2.5 % |
+| 70-80 % | 75.3 | 72.1 | 3.1 % |
+| 80-90 % | 85.1 | 81.7 | 4.2 % |
+| 90-100 % | 99.3 | 98.8 | 52.8 % |
 
 ### Earlier dry run (1961–1975 → 1981–1995)
 

@@ -257,6 +257,7 @@ def export_projections(
     allow_placeholder: bool = False,
     definitions: tuple[str, ...] = ("christmas_day",),
     patch: bool = False,
+    workers: int | None = None,
 ) -> dict:
     """Write the projection products. ``patch`` also merges the fragment into an existing
     ``web_out/manifest.json`` (normally the pipeline's export does that merge itself).
@@ -302,7 +303,7 @@ def export_projections(
         )
     ]
     stats = {}
-    workers = max(1, min(len(jobs), (os.cpu_count() or 2) - 2, 8))
+    workers = workers or max(1, min(len(jobs), (os.cpu_count() or 2) - 2, 8))
     with ProcessPoolExecutor(max_workers=workers) as pool:
         futs = {
             pool.submit(

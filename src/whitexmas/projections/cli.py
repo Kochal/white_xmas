@@ -168,6 +168,7 @@ def export(
         bool, typer.Option(help="Also merge into an existing web_out/manifest.json")
     ] = False,
     cogs: bool = True,
+    workers: Annotated[int | None, typer.Option(help="Tile rendering processes")] = None,
     verbose: bool = False,
 ) -> None:
     """Write projection layers, wx-proj-v1 point tiles, the manifest fragment and COGs."""
@@ -175,7 +176,12 @@ def export(
 
     paths, *_ = _setup(verbose, 2.5, 7, None)
     res = export_projections(
-        paths, web_out, cogs=cogs, allow_placeholder=allow_placeholder, patch=patch_manifest
+        paths,
+        web_out,
+        cogs=cogs,
+        allow_placeholder=allow_placeholder,
+        patch=patch_manifest,
+        workers=workers,
     )
     typer.echo(
         f"{len(res['layers'])} layers, {res['points']['tiles']} point tiles"
@@ -210,5 +216,6 @@ def run(
         allow_placeholder=allow_placeholder,
         patch_manifest=False,
         cogs=True,
+        workers=None,
         verbose=verbose,
     )
