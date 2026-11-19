@@ -62,11 +62,21 @@ On Windows Git Bash, prefix `BASE_PATH=/white_xmas` with `MSYS_NO_PATHCONV=1` so
 
 ## Performance
 
-First-load JS is about 70 KB gzipped. MapLibre (about 293 KB gzipped, plus its 155 KB worker) and its CSS
-load after the first paint. Lighthouse on the built site with the fixtures, served locally with gzip
+First-load JS is about 70 KB gzipped and the page CSS is inlined. MapLibre (about 293 KB gzipped,
+plus its 155 KB worker) loads after the first paint. The map starts with a plain background and
+the climate layer, then switches to a slimmed basemap (no buildings, POIs, road labels or minor
+roads; see `src/lib/map/basemap.ts`).
+
+Lighthouse on the built site with the fixtures, served locally with gzip
 (`npm run build:fixtures && npm run preview`, then `npx lighthouse http://localhost:4173/`):
-desktop performance 100; mobile (simulated slow 4G, 4× CPU) about 71, where the remaining blocking time is
-MapLibre's bundle being evaluated. Accessibility, best practices and SEO are 100.
+
+- desktop: performance 99–100;
+- mobile (simulated slow 4G, 4× CPU): about 80 (FCP 1.6 s, LCP 1.7 s), where the remaining
+  blocking time is MapLibre's own evaluation and the first GL renders;
+- accessibility, best practices and SEO: 100.
+
+Place search over the full ~34k-place list takes about 1–10 ms per keystroke on a desktop
+(`src/lib/data/search.bench.spec.ts`).
 
 ## Deploying to GitHub Pages
 
