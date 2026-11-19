@@ -42,7 +42,7 @@ Or step by step:
 | `whitexmas ingest` | NetCDF → one Zarr cube `snow_depth_cm[year, day, lat, lon]` (int16, whole cm, −1 = nodata) and masks | `interim/snow_cube.zarr` |
 | `whitexmas indicators` | probability and valid years per definition and window, change between the normals, trend + Mann-Kendall p, glacier flag, for every threshold | `interim/indicators.zarr` (default), `interim/indicators__raw.zarr` |
 | `whitexmas export --web-out web/static/data` | web data per the web data contract (manifest, PMTiles, point tiles, places, regions), COGs, the data bundle | `web/static/data/`, `products/cog/`, `products/whitexmas-web-data-<version>.tar.gz` |
-| `whitexmas stations` | checks the snow thresholds against 46 GHCN-Daily weather stations | `products/sanity/snow_variable_check.html` |
+| `whitexmas stations` | checks the snow thresholds against GHCN-Daily weather stations, selected automatically across the Northern Hemisphere (`--mode list`: the hand-picked D-17 list) | `products/stations/` (`snow_variable_check.html`, `stations_global.csv`/`.json`); list mode: `products/sanity/` |
 | `whitexmas sanity --legacy-tif <tif>` | city values for every threshold, the station-check summary and a comparison with the legacy map | `products/sanity/` |
 
 `WHITEXMAS_DATA` defaults to `white_xmas_data` next to the repository. Every step is idempotent:

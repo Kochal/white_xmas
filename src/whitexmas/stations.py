@@ -18,7 +18,11 @@ of their span (patchy SYNOP records often omit zero depths), or when the station
 absolute bias across the calibration stations; a leave-one-out run repeats the choice without
 each station in turn.
 
-Run: ``whitexmas stations`` (writes ``products/sanity/snow_variable_check.html`` and
+This module is the ``list`` mode (``stations.mode: list`` or ``whitexmas stations --mode list``),
+kept exactly as it produced the D-17 calibration. The default ``auto`` mode, a systematic global
+selection with stricter quality rules, lives in ``station_select``/``station_global``.
+
+Run: ``whitexmas stations --mode list`` (writes ``products/sanity/snow_variable_check.html`` and
 ``stations.csv``; downloads station files from NOAA NCEI into ``external/ghcn/`` once).
 """
 
@@ -28,7 +32,6 @@ import gzip
 import html
 import json
 import logging
-import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,7 +44,6 @@ from .paths import DataPaths
 log = logging.getLogger(__name__)
 
 GHCN = "https://www.ncei.noaa.gov/pub/data/ghcn/daily/"
-USER_AGENT = "whitexmas-pipeline/0.1 (+https://github.com/Kochal/white_xmas)"
 
 
 @dataclass
@@ -57,37 +59,18 @@ def station_list(cfg: Config) -> list[Station]:
     return [Station(str(i), str(n)) for i, n in cfg.raw["stations"]["list"]]
 
 
-def _get(url: str, target: Path) -> Path:
-    if target.exists() and target.stat().st_size > 0:
-        return target
-    target.parent.mkdir(parents=True, exist_ok=True)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=180) as r:
-        data = r.read()
-    tmp = target.with_suffix(target.suffix + ".part")
-    tmp.write_bytes(data)
-    tmp.replace(target)
-    return target
-
-
 def fetch(stations: list[Station], ext_dir: Path) -> None:
     """Station metadata and one CSV per station (cached under external/ghcn/)."""
-    from concurrent.futures import ThreadPoolExecutor
+    from . import ghcn
 
-    meta = _get(GHCN + "ghcnd-stations.txt", ext_dir / "ghcn" / "ghcnd-stations.txt")
+    gdir = ext_dir / "ghcn"
+    meta = ghcn.get(GHCN + "ghcnd-stations.txt", gdir / "ghcnd-stations.txt")
     wanted = {s.id: s for s in stations}
     for line in open(meta, encoding="utf-8", errors="replace"):
         s = wanted.get(line[:11])
         if s:
             s.lat, s.lon, s.elev = float(line[12:20]), float(line[21:30]), float(line[31:37])
-    with ThreadPoolExecutor(6) as ex:
-        list(
-            ex.map(
-                lambda s: _get(f"{GHCN}by_station/{s.id}.csv.gz",
-                               ext_dir / "ghcn" / f"{s.id}.csv.gz"),
-                stations,
-            )
-        )  # fmt: skip
+    ghcn.fetch_stations([s.id for s in stations], gdir)
 
 
 def read_snwd(path: Path) -> tuple[dict[int, int], float]:
@@ -203,7 +186,32 @@ def calibrate(rows: list[dict], thresholds: list[int], always_white_pct: float =
     }
 
 
-def run(cfg: Config, paths: DataPaths, out_dir: Path | None = None) -> dict:
+def calibration_line(cal: dict, shipped_cm: int) -> str:
+    """'smallest mean bias: X cm; smallest MAE: Y cm; shipped: Z cm' from a calibration dict."""
+    stats = {int(k): v for k, v in cal["stats"].items()}
+    by_mae = min(stats, key=lambda t: (stats[t]["mae_pp"], t))
+    b, m = stats[cal["best_cm"]], stats[by_mae]
+    return (
+        f"smallest mean bias: {cal['best_cm']} cm ({b['bias_pp']:+.1f} pp); "
+        f"smallest MAE: {by_mae} cm ({m['mae_pp']:.1f} pp); shipped: {shipped_cm} cm"
+    )
+
+
+def run(
+    cfg: Config, paths: DataPaths, out_dir: Path | None = None, mode: str | None = None
+) -> dict:
+    """``whitexmas stations``: the auto (global) assessment, or the D-17 list check."""
+    mode = mode or str(cfg.raw["stations"].get("mode", "list"))
+    if mode == "auto":
+        from .station_global import run as run_auto
+
+        return run_auto(cfg, paths, out_dir)
+    if mode != "list":
+        raise ValueError(f"stations.mode must be 'auto' or 'list', not {mode!r}")
+    return run_list(cfg, paths, out_dir)
+
+
+def run_list(cfg: Config, paths: DataPaths, out_dir: Path | None = None) -> dict:
     stations = station_list(cfg)
     fetch(stations, paths.external)
     rows = station_rows(cfg, paths, stations)

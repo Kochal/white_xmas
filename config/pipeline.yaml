@@ -46,14 +46,15 @@ thresholds:
     label: Calibrated to weather stations
     description: >-
       At least {cm} cm of snow in ERA5-Land, which matches at least {station_equivalent_cm} cm
-      measured at weather stations (checked against 30 GHCN-Daily stations).
+      measured at weather stations (checked against 827 GHCN-Daily stations, mostly in North
+      America and Europe).
     layers: full
   - id: raw
     cm: 1
     label: Raw ERA5-Land, at least 1 cm
     description: >-
-      At least {cm} cm of snow in ERA5-Land as published. Too snowy in lowlands by about
-      24 percentage points compared with weather stations.
+      At least {cm} cm of snow in ERA5-Land as published. Too snowy by about 20 percentage
+      points compared with weather stations.
     layers: full
 
 # A window's probability is reported only where at least this share of its years has data.
@@ -111,7 +112,25 @@ export:
 # Station check (`whitexmas stations`): GHCN-Daily snow depth (SNWD) on 25 December against the
 # cube cell of each station (contract rounding), to calibrate threshold_cm. Northern Hemisphere
 # only: 25 December is midsummer in the south.
+# mode: auto = systematic global selection from NOAA's bulk metadata (src/whitexmas/station_select.py,
+#              writes products/stations/); list = the hand-picked D-17 list below, exactly as it
+#              was calibrated (writes products/sanity/). `whitexmas stations --mode list|auto`.
 stations:
+  mode: auto
+  auto:
+    min_lat: 0               # Northern Hemisphere
+    box_deg: 1.0             # keep one station per 1 x 1 degree box (longest SNWD span first)
+    max_tries: 6             # if a box's station fails a data-quality rule, try the next one
+    concurrency: 4           # parallel downloads from NCEI (never more than 4)
+    pin: null                # path to a stations.json: rerun on exactly its examined stations
+  min_dec_completeness: 0.9  # auto: SNWD on >= 90 % of the December days with PRCP/temperature
+  max_incomplete_share: 0.2  # auto: more incomplete Decembers than this -> zeros probably not reported
+  min_snowfall_mm: 200       # auto: a December with >= 20 cm snowfall but snow depth never > 0 ...
+  max_snowfall_without_depth_share: 0.2  # ... in > 20 % of such Decembers -> zero-filled record
+  never_white_pct: 5         # auto: station and ERA5-Land at 1 cm both white < 5 %: no information
+  high_mountain_m: 1500      # auto: flag stations (or cells) at or above this elevation
+  lake_cover: 0.3            # auto: flag stations whose cell has more lake than this
+  gsod_share: 0.5            # auto: flag records mostly from GSOD (omits zero depths)
   obs_threshold_mm: 10       # observed white Christmas: SNWD >= 1 cm (US stations: whole inches)
   min_years: 15              # overlapping years with the cube
   always_white_pct: 95       # stations observed white in >= this share are left out of calibration

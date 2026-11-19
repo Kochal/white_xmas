@@ -53,3 +53,19 @@ def test_exclusion_rules():
     assert _exclusion({**base, "obs_pct": 97}, sc) == "always white"
     assert _exclusion({**base, "coverage": 0.4}, sc).startswith("patchy")
     assert _exclusion({**base, "cell_elev_m": 1461.0}, sc).startswith("cell +1011 m")
+
+
+def test_calibration_line_names_each_criterion():
+    from whitexmas.stations import calibration_line
+
+    cal = {
+        "best_cm": 6,
+        "stats": {
+            "4": {"bias_pp": 4.7, "mae_pp": 8.68},
+            "5": {"bias_pp": 1.6, "mae_pp": 8.64},
+            "6": {"bias_pp": -1.2, "mae_pp": 9.29},
+        },
+    }
+    assert calibration_line(cal, 5) == (
+        "smallest mean bias: 6 cm (-1.2 pp); smallest MAE: 5 cm (8.6 pp); shipped: 5 cm"
+    )

@@ -148,18 +148,30 @@ def sanity(
 
 
 @app.command()
-def stations(config: ConfigOpt = None, verbose: bool = False) -> None:
+def stations(
+    config: ConfigOpt = None,
+    mode: Annotated[
+        str | None,
+        typer.Option(help="auto (global selection) or list (D-17 list); default: config"),
+    ] = None,
+    verbose: bool = False,
+) -> None:
     """Check snow thresholds against GHCN-Daily weather stations (calibrates threshold_cm)."""
     from .stations import run
 
     cfg, paths = _setup(config, verbose)
-    res = run(cfg, paths)
-    cal = res["calibration"]
+    res = run(cfg, paths, mode=mode)
+    cal = res.get("calibration")
+    if not cal:
+        typer.echo("no station passed the rules")
+        return
+    from .stations import calibration_line
+
+    out = paths.products / ("stations" if res.get("mode") == "auto" else "sanity")
     typer.echo(
-        f"{len(res['stations'])} stations ({cal['n_calibration']} for calibration); "
-        f"best whole-cm threshold: {cal['best_cm']} cm "
-        f"(bias {cal['stats'][cal['best_cm']]['bias_pp']:+.1f} pp, "
-        f"MAE {cal['stats'][cal['best_cm']]['mae_pp']:.1f} pp)"
+        f"{len(res['stations'])} stations examined, {cal['n_calibration']} used; "
+        f"{calibration_line(cal, cfg.threshold_cm)}\n"
+        f"report: {out / 'snow_variable_check.html'}"
     )
 
 
