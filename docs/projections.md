@@ -267,7 +267,8 @@ does not record a real ERA5-Land reference.
   `whitexmas projections export --web-out X --patch-manifest` stages into X and merges directly.
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
-Sizes on the real baseline: 15.6 MB for the 6 layers and 1.6 MB of point tiles.
+Sizes on the real baseline: 14.9 MB for the 6 layers and 1.6 MB of point tiles (data-2025.1;
+the rebuild with the fixed estimator: 15.0 MB and 1.5 MB).
 
 Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
 
@@ -508,8 +509,9 @@ about 38 % at +2 °C). Pooling ± 7 days narrows the model spread by about a qua
 cell-to-cell noise by 30 %, which is the point of it: less of the uncertainty band is sampling
 noise. (With the earlier 1995–2014 baseline the median change was −0.55; the 1996–2025 baseline
 is about 0.15 °C warmer, so the step to +2 °C is a little smaller.) This table was computed with
-the per-window smoothing used before the estimator fix of 2026-11-19 and has not been re-run;
-it compares settings with each other, which the fix affects alike.
+the per-window smoothing used before the estimator fix of 2026-11-19 and was **not re-run**
+after it. All settings share the same 30/20-year windows, so the fix should shift them alike, but
+that is not checked.
 
 ## Windows of different length: no spurious change (fix, 2026-11-19)
 
@@ -527,7 +529,8 @@ looked like a change. Projected probability for an ERA5-Land cell at 0 %, 50 % o
 | rare, disappears, 1/30 → 0/20 | −0.735 | −0.880 | 0 % | 31.8 % old, 28.6 % new | 98.3 % old, 97.7 % new |
 | rare, appears, 0/30 → 1/20 | +1.546 | +1.149 | 5.7 % old, 3.4 % new | 83.5 % old, 76.8 % new | 100 % |
 
-Every model has 70–80 % of its land cells never or always white in both windows, so in the
+Every model has about 70–85 % of its land cells never or always white in both windows (67–87 %
+of cells, 68–82 % of land area, across models and warming levels), so in the
 released data-2025.1 nearly every 0 % cell showed about 1 % in the future (London "0 → 1 %") and
 nearly every 100 % cell 99 %. The bias is not only at 0 and 100 %: any frequency below 50 % was
 nudged up and any above 50 % down.
@@ -547,8 +550,8 @@ nudged up and any above 50 % down.
   the sign); it stays finite at 0 and 100 %; and for equal windows it is exactly the old
   Jeffreys estimate. The shorter window's `m` keeps the smoothing as strong as the less informed
   window needs; a 30-year `m` would make the 20-year frequency look more certain than its 20
-  years allow (and give rare-event cells larger changes: 0/30 → 1/20 would be +1.55 instead of
-  +1.15).
+  years allow (and give rare-event cells larger changes: 0/30 → 1/20 would be +1.44 instead of
+  +1.15; the old per-window estimator gives +1.55).
 
 **Validation.**
 
@@ -563,9 +566,10 @@ nudged up and any above 50 % down.
   2006–2025, applied to ERA5-Land 1961–1990, scored against ERA5-Land 2006–2025, 19 models):
   ensemble Brier skill against "no change" +6.58 % old, **+6.56 %** new (ceiling +14.8 %); single
   models −3.1 to +5.4 % old, **−2.1 to +5.8 %** new. Reliability: the 0–10 % bin improves
-  (forecast 1.9 % old, 1.5 % new, observed 1.0 %); the 90–100 % bin gets a little worse (98.7 %
-  old, 99.4 % new, observed 98.3 %) because the old −0.40 in always-white cells happened to look
-  like the real decline at the snowy edge. Mean change: observed −3.9 pp, ensemble −2.6 pp old
+  (forecast 1.9 % old, 1.5 % new, observed 1.0 % in both runs); the 90–100 % bin gets worse
+  (old: forecast 98.7 %, observed 98.6 %; new: forecast 99.4 %, observed 98.3 %; the bins hold
+  slightly different cells) because the old −0.4 bias in nearly-white cells happened to look like
+  the real decline at the snowy edge (see "Snowy places" under Limitations). Mean change: observed −3.9 pp, ensemble −2.6 pp old
   and −2.2 pp new, so the method stays conservative.
 - *(c) Rare-event cells behave sensibly.* A model cell going from 1 in 30 years to 0 in 20 gets
   Δ = −0.88 (finite, negative); 0 in 30 to 1 in 20 gets +1.15; Δ rises monotonically with the
@@ -588,10 +592,15 @@ data-2025.1; 2,188,137 land cells, area weighted by cos(latitude)):
 
 Most of the "≥ 0.5 pp" area is the 0.8 pp artefact disappearing from never-white cells (54 % of
 land) and always-white cells (28 %). Changes of 5 pp or more are in snowy places (median
-baseline 63–73 %) where several models are white every year in both windows: those models used
-to pull the median down with a spurious −0.40 and now count as "no change". So snowy places
-(Oslo, Moscow, Innsbruck) decline a little less than published, and places where snow is rare
-a little more. The agreement flag changes for the same reason: "no change" now actually occurs.
+baseline 63–73 %), where many models are white in nearly every year (frequency ≥ 0.93).
+Smoothing each window with its own length gave such cells a median bias of about −0.4, even when
+the frequency did not change (for a true 95 % in both windows, the most likely draws, 20/20
+against 29/30 or 30/30, give Δ = −0.397). Removing it weakens the decline there, e.g. Oslo
++2 °C 56 → 61 %. This is not mainly about models that are white in *every* year: at Moscow's
+nearest model cells no model is, yet the change moved up for 18 of 19 models; dropping the
+saturated models leaves Oslo and Moscow where they are (independent review of PR #6). Places
+where snow is rare decline a little more. The agreement flag changes because "no change" now
+actually occurs.
 
 | Place | Today | +1.5 °C (data-2025.1 → fixed) | +2 °C | +3 °C |
 |---|---|---|---|---|
