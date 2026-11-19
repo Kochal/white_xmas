@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatPct, formatPp, frequencyLine, inTenYears, latLonLabel } from './format';
+import { formatP, formatPct, formatPp, frequencyLine, inTenYears, latLonLabel } from './format';
 
 describe('inTenYears: plain-language frequency', () => {
 	it('says "about k in 10 years" in the middle of the range', () => {
@@ -43,5 +43,15 @@ describe('number formatting', () => {
 		// the antimeridian and the equator / prime meridian have no hemisphere letter
 		expect(latLonLabel(65.5, -180)).toBe('65.5°N 180.0°');
 		expect(latLonLabel(0, 0)).toBe('0.0° 0.0°');
+	});
+});
+
+describe('formatP', () => {
+	it('reads as a sentence fragment, with few digits for large p', () => {
+		expect(formatP(0.43)).toBe('p = 0.43');
+		expect(formatP(0.0312)).toBe('p = 0.03');
+		expect(formatP(0.004)).toBe('p = 0.004');
+		expect(formatP(0.0004)).toBe('p < 0.001');
+		expect(formatP(0)).toBe('p < 0.001');
 	});
 });

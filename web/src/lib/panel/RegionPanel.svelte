@@ -19,7 +19,7 @@
 		spreadAt,
 		trendInfo
 	} from '#lib/data/region-view.ts';
-	import { formatPct, formatPp, frequencyLine } from '#lib/format/format.ts';
+	import { formatP, formatPct, formatPp, frequencyLine } from '#lib/format/format.ts';
 	import type { Selection } from '#lib/map/layers.ts';
 	import DecadeBars from './DecadeBars.svelte';
 	import FutureRanges from './FutureRanges.svelte';
@@ -225,10 +225,10 @@
 					<strong>{formatPp(trend.perDecade, 'pp per decade')}</strong>
 					{#if trend.significant}
 						<span class="sig yes" data-testid="trend-significance">● clear trend</span>
-						<span class="muted">(p = {trend.p?.toFixed(2)})</span>
+						<span class="muted">({trend.p === null ? '' : formatP(trend.p)})</span>
 					{:else}
 						<span class="sig" data-testid="trend-significance">○ not a clear trend</span>
-						{#if trend.p !== null}<span class="muted">(p = {trend.p.toFixed(2)})</span>{/if}
+						{#if trend.p !== null}<span class="muted">({formatP(trend.p)})</span>{/if}
 					{/if}
 					<span class="muted">{fullWin?.label ?? ''}</span>
 				</p>

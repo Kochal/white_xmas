@@ -50,6 +50,11 @@
 		[...regions].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
 	);
 	const ADMIN_LIMIT = 25;
+	const RANKING_TITLES: Record<RegionMetric, string> = {
+		snowiest: 'Snowiest',
+		least_snowy: 'Least snowy',
+		decline: 'Biggest declines among'
+	};
 	const adminCountries = $derived(admin1 ? countryOptions(admin1.countries) : []);
 	const adminCountryName = $derived(admin1?.countries[adminCountry]?.name ?? '');
 	/** The ranking, or the matches of the search box when something is typed in it. */
@@ -65,7 +70,7 @@
 	const adminHeading = $derived(
 		searching
 			? 'Matching states and provinces'
-			: `${METRIC_LABELS[metric]} ${adminCountryName ? `regions in ${adminCountryName}` : 'states and provinces worldwide'}`
+			: `${RANKING_TITLES[metric]} ${adminCountryName ? `regions in ${adminCountryName}` : 'states and provinces worldwide'}`
 	);
 	const winLabel = (id: string | undefined) =>
 		manifest?.windows.find((w) => w.id === id)?.label ?? id?.replace('_', '–') ?? '';

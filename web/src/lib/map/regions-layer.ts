@@ -95,8 +95,8 @@ export function regionLayers(colors: RegionColors, glyphs: boolean): LayerSpecif
 			paint: {
 				'line-color': colors.line,
 				// faint at world zoom, firmer when zoomed in
-				'line-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.22, 4, 0.4, 7, 0.65],
-				'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.3, 4, 0.7, 8, 1.4]
+				'line-opacity': ['interpolate', ['linear'], ['zoom'], 1, 0.1, 3, 0.16, 5, 0.38, 7, 0.65],
+				'line-width': ['interpolate', ['linear'], ['zoom'], 1, 0.25, 4, 0.6, 8, 1.4]
 			}
 		},
 		{

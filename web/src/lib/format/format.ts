@@ -31,6 +31,12 @@ export function formatPp(v: number | null, unit = 'pp', digits = 1): string {
 	return `${sign}${s} ${unit}`;
 }
 
+/** A p-value for reading: "p = 0.03", "p = 0.004", "p < 0.001". */
+export function formatP(p: number): string {
+	if (p < 0.001) return 'p < 0.001';
+	return `p = ${p.toFixed(p < 0.01 ? 3 : 2)}`;
+}
+
 export function signed(v: number, digits = 1): string {
 	const s = Math.abs(v).toFixed(digits);
 	return `${Number(s) === 0 ? '' : v < 0 ? MINUS : '+'}${s}`;

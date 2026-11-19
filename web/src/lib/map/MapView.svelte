@@ -368,7 +368,9 @@
 	class="map"
 	bind:this={container}
 	role="region"
-	aria-label="Map of white Christmas probability. Click anywhere, or use the arrow keys and press Enter, to see the history of the point at the centre."
+	aria-label={regions?.show
+		? 'Map of white Christmas probability with state and province borders. Click a region, or use the arrow keys and press Enter, to see the state or province at the centre.'
+		: 'Map of white Christmas probability. Click anywhere, or use the arrow keys and press Enter, to see the history of the point at the centre.'}
 ></div>
 {#if hoverName}
 	<p class="region-tip" role="presentation">{hoverName}</p>
