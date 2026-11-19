@@ -4,7 +4,8 @@ The admin-1 polygons form a coverage (neighbours share their borders), so they a
 together with GEOS coverage simplification, which keeps shared borders identical and leaves no
 gaps or overlaps between neighbours. Whole-country fallback regions (reefs, the Cyprus buffer
 zone) are simplified on their own. Then parts smaller than ``min_part_km2`` are dropped (a
-region always keeps its largest part) and coordinates are rounded to ``decimals``.
+region always keeps its largest part), coordinates are rounded to ``decimals``, and outlines
+that the rounding made invalid are repaired with ``make_valid`` (polygon parts only).
 """
 
 from __future__ import annotations
@@ -118,19 +119,65 @@ def _ring(coords, d: int) -> list:
     return pts if len(pts) >= 4 else []
 
 
-def to_geojson_geometry(geom, decimals: int) -> dict | None:
+def _rounded(geom, decimals: int):
+    """The polygon parts of ``geom`` with coordinates rounded, or None if nothing is left."""
+    import shapely
+
     polys = []
     for p in _polygons(geom):
         ext = _ring(p.exterior.coords, decimals)
         if not ext:
             continue
-        rings = [ext] + [r for r in (_ring(i.coords, decimals) for i in p.interiors) if r]
-        polys.append(rings)
+        holes = [r for r in (_ring(i.coords, decimals) for i in p.interiors) if r]
+        polys.append(shapely.Polygon(ext, holes))
     if not polys:
         return None
+    return polys[0] if len(polys) == 1 else shapely.MultiPolygon(polys)
+
+
+def valid_polygonal(geom):
+    """``make_valid`` and keep only the polygon parts (rounding can make a ring touch or cross
+    itself, or two parts overlap; make_valid can return stray lines and points as well)."""
+    import shapely
+
+    if geom is None or geom.is_empty:
+        return None
+    if geom.is_valid:
+        return geom
+    parts = _polygons(shapely.make_valid(geom))
+    if not parts:
+        return None
+    return parts[0] if len(parts) == 1 else shapely.MultiPolygon(parts)
+
+
+def _coords(ring, d: int) -> list:
+    return [[round(float(x), d), round(float(y), d)] for x, y in ring.coords]
+
+
+def to_geojson_geometry(geom, decimals: int) -> dict | None:
+    """GeoJSON geometry with coordinates rounded to ``decimals`` and repaired to be valid.
+
+    Vertices that ``make_valid`` adds where a rounded ring crossed itself are kept to
+    ``decimals + 3`` places, so rounding them does not break validity again.
+    """
+    g = _rounded(geom, decimals)
+    if g is None:
+        return None
+    fixed = not g.is_valid
+    g = valid_polygonal(g)
+    if g is None:
+        return None
+    d = decimals + 3 if fixed else decimals
+    polys = [[_coords(p.exterior, d)] + [_coords(i, d) for i in p.interiors] for p in _polygons(g)]
     if len(polys) == 1:
         return {"type": "Polygon", "coordinates": polys[0]}
     return {"type": "MultiPolygon", "coordinates": polys}
+
+
+def shape_of(geojson_geometry: dict):
+    import shapely.geometry
+
+    return shapely.geometry.shape(geojson_geometry)
 
 
 def boundaries_geojson(regions: list[dict], geoms: list, decimals: int) -> dict:
@@ -145,6 +192,8 @@ def boundaries_geojson(regions: list[dict], geoms: list, decimals: int) -> dict:
         if geo is None:
             log.warning("admin1: %s has no geometry left after simplification", r["id"])
             continue
+        if not shape_of(geo).is_valid:
+            log.warning("admin1: %s outline is invalid after repair", r["id"])
         feats.append({
             "type": "Feature", "id": k,
             "properties": {"id": r["id"], "country": r["country"]},

@@ -31,7 +31,7 @@ ISO_RE = re.compile(r"^[A-Z]{2}-[A-Z0-9]{1,3}$")
 # (web/src/lib/url-state.ts REGION_ID), so both sides must change together.
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,47}$")
 ADMIN1_COLUMNS = [
-    "adm1_code", "iso_3166_2", "name", "name_en", "type_en", "adm0_a3", "admin",
+    "adm1_code", "iso_3166_2", "name", "name_en", "type", "type_en", "adm0_a3", "admin",
     "region", "region_cod", "geonunit",
 ]  # fmt: skip
 
@@ -105,7 +105,7 @@ def build_regions(admin1: list[dict], countries: list[dict], dissolve: dict) -> 
         name = f["name_en"] or f["name"] or cnames.get(key, key)
         local = f["name"] if f["name"] and f["name"] != name else ""
         regions.append({
-            "id": rid, "name": name, "name_local": local, "type": f["type_en"],
+            "id": rid, "name": name, "name_local": local, "type": f["type_en"] or f["type"],
             "country": key, "country_name": cnames.get(key, f["admin"]), "adm0_a3": a3,
             "source": "ne_admin1", "n_features": 1, "geom": f["geom"],
         })  # fmt: skip

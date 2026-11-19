@@ -196,7 +196,7 @@ admin1:
       id_from: region_cod
       names: {Lombardia: Lombardy, Piemonte: Piedmont, Toscana: Tuscany, Sardegna: Sardinia,
               "Valle d'Aosta": Aosta Valley, Trentino-Alto Adige: Trentino-South Tyrol}
-    FRA:   # 101 departements -> 13 metropolitan and 5 overseas regions
+    FRA:   # 101 departements -> 13 metropolitan and 5 overseas regions (+ Clipperton, admin-0)
       by: region
       id_from: region_cod
       names: {Bretagne: Brittany, Normandie: Normandy, Corse: Corsica,

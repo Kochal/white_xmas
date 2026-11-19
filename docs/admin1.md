@@ -23,6 +23,9 @@ are dissolved to the first level (`admin1.dissolve` in `config/pipeline.yaml`):
 | --- | --- | --- | --- |
 | Italy | 110 provinces | 20 regions (`region`) | ISO 3166-2 (`IT-25` Lombardy) |
 | France | 101 départements | 13 metropolitan + 5 overseas regions | ISO (`FR-ARA`) |
+
+France has 19 regions under its country key: the 18 above plus Clipperton Island (`CLP00`,
+an admin-0 unit under the FRA key with no admin-1 feature, flagged `admin0`).
 | Spain | 52 provinces | 17 autonomous communities + Ceuta, Melilla | ISO (`ES-CT`) |
 | United Kingdom | 232 local authorities | England, Scotland, Wales, Northern Ireland | ISO (`GB-SCT`) |
 | Slovenia | 193 municipalities | 12 statistical regions | `SVN-<NAME>` (no ISO code) |
@@ -60,8 +63,15 @@ ERA5-Land cells are 0.1° (about 9 × 11 km in mid-latitudes); many regions are 
 across, so a cell is not simply "in" or "out":
 
 - **Cell fractions.** Each region gets the share of every cell it covers (0–1). A cell on a
-  border is split between the regions by those shares, so no cell is counted twice and no
-  region loses its edge cells. Regions whose bounding box spans at most 400 cells (city
+  border is split between the regions by those shares, so no region loses its edge cells and
+  a border cell is not counted in full by both neighbours. Natural Earth's polygons do overlap
+  in a few places (419 of 2.2 million cells have fractions summing to more than 1.02, at most
+  2: Egypt's Matrouh and New Valley governorates, Bir Tawil and Sudan's Red Sea state, the
+  Cyprus buffer zone, Tanzania/Uganda along Lake Victoria, Warmia-Masuria/Kaliningrad,
+  Connecticut/Massachusetts); such a cell then counts for both regions. That does not bias
+  either region's mean, which is a weighted mean over its own cells; only the regions' areas
+  overlap slightly. A GeoNames place inside an overlap is assigned to only one of the
+  regions (whichever the spatial index lists last), not to both. Regions whose bounding box spans at most 400 cells (city
   states, islands, small counties) use the exact polygon-cell intersection; larger regions
   are rasterised on a grid 10 times finer per axis (4 times for continent-sized regions such
   as Antarctica or Nunavut), so a fraction is accurate to 1 % of a cell, and only edge cells
@@ -196,6 +206,9 @@ them, and must work without them.
 - `type`: the region's kind as Natural Earth names it in English (State, Province, Region,
   County, Municipality, …; "Region" for dissolved groups, "Country" for `admin0`), to tell
   duplicate names apart (Buenos Aires city and province, Sofia, Lankaran × 3, Antarctica × 2).
+  Natural Earth's local type is used where the English one is missing; it is an empty string
+  for about 360 features with neither (mostly Maltese local councils and small-island
+  districts: Seychelles, Cape Verde, Palau, Nauru, Liechtenstein, Bermuda).
 - `p_full`, `p_then`: also useful as tie-breaks when many regions share a rounded `p_now`
   (dozens at 100 %, about 2,000 at 0 %).
 - `p_then_<id>`/`p_now_<id>`: the other thresholds (today `raw`), as in `regions.json`.
@@ -305,16 +318,16 @@ Run on the full ERA5-Land cube and the shipped indicators and projections (19 mo
 calibrated 5 cm threshold, snow on Christmas Day, 1996–2025 unless stated; trend over
 1950–2025 with its Mann-Kendall p. "City" is the main city's own cell, as in the city search.
 
-| Region | Area-weighted | Population-weighted | p5–p95 | Area ≥ 50 % | 1961–1990 | Trend (pp/decade) | +2 °C (median) | City |
+| Region | Area-weighted | Population-weighted | p5–p95 | Area ≥ 50 % | 1961–1990 | Trend (pp/decade, p, q) | +2 °C (median) | City |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Bavaria (DE-BY) | 27.8 % | 23.5 % | 7–87 | 16 % | 45.4 % | −5.5 (p < 0.001) | 22.6 % | Munich 26.7 % |
-| Minnesota (US-MN) | 77.8 % | 63.4 % | 53–97 | 99 % | 87.8 % | −2.2 (p 0.20) | 69.9 % | Minneapolis 63.3 % |
-| Ontario (CA-ON) | 95.6 % | 51.8 % | 70–100 | 98 % | 97.6 % | −0.3 (p 0.31) | 91.7 % | Toronto 36.7 % |
-| Hokkaido (JP-01) | 94.1 % | 91.1 % | 67–100 | 99 % | 90.5 % | +0.7 (p 0.15) | 90.5 % | Sapporo 100 % |
-| Tyrol (AT-7) | 97.9 % | 93.3 % | 93–100 | 100 % | 100 % | −0.5 (p 0.009) | 94.9 % | Innsbruck 93.3 % |
-| Lapland (FI-10) | 99.9 % | 97.7 % | 100–100 | 100 % | 100 % | 0.0 (p 0.76) | 99.0 % | Rovaniemi 100 % |
-| Lombardy (IT-25) | 31.7 % | 9.9 % | 0–97 | 30 % | 37.8 % | −1.7 (p 0.03) | 26.7 % | Milan 10.0 % |
-| Scotland (GB-SCT) | 7.9 % | 2.0 % | 0–27 | 0 % | 15.7 % | −1.5 (p 0.005) | 5.9 % | – |
+| Bavaria (DE-BY) | 27.8 % | 23.5 % | 7–87 | 16 % | 45.4 % | −5.5 (p < 0.001, q 0.03) | 22.6 % | Munich 26.7 % |
+| Minnesota (US-MN) | 77.8 % | 63.4 % | 53–97 | 99 % | 87.8 % | −2.2 (p 0.20, q 0.51) | 69.9 % | Minneapolis 63.3 % |
+| Ontario (CA-ON) | 95.6 % | 51.8 % | 70–100 | 98 % | 97.6 % | −0.3 (p 0.31, q 0.60) | 91.7 % | Toronto 36.7 % |
+| Hokkaido (JP-01) | 94.1 % | 91.1 % | 67–100 | 99 % | 90.5 % | +0.7 (p 0.15, q 0.46) | 90.5 % | Sapporo 100 % |
+| Tyrol (AT-7) | 97.9 % | 93.3 % | 93–100 | 100 % | 100 % | −0.5 (p 0.009, q 0.15) | 94.9 % | Innsbruck 93.3 % |
+| Lapland (FI-10) | 99.9 % | 97.7 % | 100–100 | 100 % | 100 % | 0.0 (p 0.76, q 0.86) | 99.0 % | Rovaniemi 100 % |
+| Lombardy (IT-25) | 31.7 % | 9.9 % | 0–97 | 30 % | 37.8 % | −1.7 (p 0.03, q 0.24) | 26.7 % | Milan 10.0 % |
+| Scotland (GB-SCT) | 7.9 % | 2.0 % | 0–27 | 0 % | 15.7 % | −1.5 (p 0.005, q 0.10) | 5.9 % | – |
 
 What this shows:
 
@@ -326,8 +339,10 @@ What this shows:
   Milan 10 / Lombardy 10), and every city lies inside its region's p5–p95 except Toronto, which
   is in the warmest 5 % of Ontario's area. That is expected, not an error.
 - **Bavaria** has lost the most of these: from 45 % (1961–1990) to 28 % (1996–2025), −5.5 pp
-  per decade, clearly significant; **Minnesota's** decline (−2.2 pp per decade) is not
-  significant over 76 noisy years.
+  per decade, a clear trend even after adjusting for the many regions tested (q = 0.03);
+  **Minnesota's** decline (−2.2 pp per decade) is not significant over 76 noisy years. Tyrol
+  and Lombardy pass the per-region test (p 0.009, 0.03) but not the adjusted one (q 0.15,
+  0.24), so the site does not call them clear trends.
 
 Coverage: 3,988 regions; 3,736 have values. 252 (mostly small islands in the Seychelles,
 Maldives, Bahamas, Anguilla, Nauru, Bermuda and the Cook Islands, up to the 946 km² of
@@ -352,7 +367,7 @@ On the pipeline workstation, one step at a time:
 | `admin1 stats` | 118 s (windows 31 s, cube pass 64 s, projections 20 s) | `interim/admin1/stats.npz` 4.9 MB |
 | `admin1 export` | 13 s | 254 web files, 24.1 MB (3.39 MB gzip); CSV 4.9 MB |
 
-Web files: `index.json` 0.6 MB (132 kB gzip), `boundaries.json` 5.1 MB (1.43 MB gzip), the
+Web files: `index.json` 437 kB (132 kB gzip), `boundaries.json` 5.1 MB (1.43 MB gzip), the
 largest country file Latvia (119 municipalities) 69 kB gzip. The data bundle grows by 24 MB (it
 was 203 MB of the 400 MB budget).
 
@@ -368,6 +383,10 @@ was 203 MB of the 400 MB budget).
 - **Borders.** Natural Earth 1:10m borders are generalised and some are disputed; the regions
   are statistical units, not a statement about sovereignty.
 - **Population weighting** uses places with at least 15,000 inhabitants only (see above).
+- **Trend tests across ~1,600 regions.** A per-region test at α = 0.1 (`trend_p`) lets about
+  1 in 10 regions without a real change pass; neighbouring regions share weather, so the tests
+  are not independent either. Use `trend_q < 0.1` (Benjamini-Hochberg, see Statistics) for
+  "clear trend"; even then about 1 in 10 of the regions called clear may be chance.
 - **Small islands** without an ERA5-Land land cell have no values (252 regions, see above).
 - **Projections inherit the map's small-probability floor.** A model cell with no snow in
   either window gets a slightly positive log-odds change from the Jeffreys smoothing, because

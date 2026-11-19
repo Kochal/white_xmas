@@ -245,7 +245,7 @@ def test_dissolve_and_ids():
 
     def feat(code, iso, name, a3, **kw):
         base = {"adm1_code": code, "iso_3166_2": iso, "name": name, "name_en": "",
-                "type_en": "Province", "adm0_a3": a3, "admin": a3, "region": "",
+                "type": "", "type_en": "Province", "adm0_a3": a3, "admin": a3, "region": "",
                 "region_cod": "", "geonunit": ""}  # fmt: skip
         base.update(kw)
         base["geom"] = box(0, 1, 0, 1)

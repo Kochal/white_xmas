@@ -3,7 +3,8 @@
 ``fractions(regions, ...)`` returns a sparse matrix ``F[region, cell]`` with the share of each
 0.1° cell that lies inside the region polygon (0-1; cells are ``j * nx + i``, row-major from the
 north-west cell, as in the contract). A cell on a border is shared between the regions by its
-fractions, so no cell is counted twice and no region loses its edge cells.
+fractions, so no region loses its edge cells. (Where Natural Earth polygons overlap, a cell's
+fractions can sum to more than 1; each region's mean is still over its own cells.)
 
 - Regions whose bounding box spans at most ``exact_max_cells`` cells (small states, islands,
   city states): exact polygon-cell intersection areas (in degrees², which is exact within a
@@ -195,7 +196,9 @@ def population_weights(
     pts = shapely.points([p["lon"] for p in places], [p["lat"] for p in places])
     pi, ri = tree.query(pts, predicate="within")
     region_of = np.full(len(places), -1, "int64")
-    region_of[pi] = ri  # a point on a shared border lands in one of the two regions
+    # a point on a shared border or in an overlap of two polygons lands in one region only
+    # (numpy keeps the last of repeated indices)
+    region_of[pi] = ri
     miss = np.nonzero(region_of < 0)[0]
     if len(miss):
         mi, mr = tree.query_nearest(pts[miss], max_distance=max_deg, all_matches=False)
