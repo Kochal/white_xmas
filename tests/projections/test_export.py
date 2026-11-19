@@ -5,10 +5,13 @@ import json
 import struct
 
 import numpy as np
+import pytest
 
+from whitexmas.projections.changes import ESTIMATOR
 from whitexmas.projections.export import (
     decode_proj_tile,
     encode_proj_tile,
+    manifest_fragment,
     patch_manifest,
     plan_layers,
     projections_block,
@@ -155,9 +158,36 @@ def _staged(tmp_path, placeholder=False, n_tiles=2):
     (pp.staging / "proj" / "index.json").write_text(
         json.dumps({"format": "wx-proj-v1", "tile_deg": 5, "tiles": names}), encoding="utf-8"
     )
-    frag = {"placeholder": placeholder, "layers": layers, "projections": {"available": True}}
+    frag = {"placeholder": placeholder, "estimator": ESTIMATOR, "layers": layers,
+            "projections": {"available": True}}  # fmt: skip
     (pp.products / "manifest_fragment.json").write_text(json.dumps(frag), encoding="utf-8")
     return DataPaths(tmp_path), pp, layers, names
+
+
+@pytest.mark.parametrize("estimator", [None, "jeffreys-per-window"])
+def test_fragment_from_another_estimator_is_refused(tmp_path, estimator):
+    # e.g. the data-2025.1 fragment (no estimator) staged into a data-2025.2 bundle
+    paths, pp, *_ = _staged(tmp_path)
+    f = pp.products / "manifest_fragment.json"
+    frag = json.loads(f.read_text(encoding="utf-8"))
+    frag.pop("estimator")
+    if estimator:
+        frag["estimator"] = estimator
+    f.write_text(json.dumps(frag), encoding="utf-8")
+    web = tmp_path / "web"
+    with pytest.raises(RuntimeError, match="estimator"):
+        manifest_fragment(paths, web)
+    assert not web.exists()  # nothing staged
+
+
+def test_fragment_staging_logs_the_source_folder(tmp_path, caplog):
+    import logging
+
+    paths, pp, *_ = _staged(tmp_path)
+    with caplog.at_level(logging.INFO, logger="whitexmas.projections.export"):
+        out = manifest_fragment(paths, tmp_path / "web")
+    assert out is not None and "estimator" not in out  # the manifest gets layers + block only
+    assert f"staged {pp.staging}" in caplog.text
 
 
 def test_manifest_fragment_is_none_without_a_real_export(tmp_path):

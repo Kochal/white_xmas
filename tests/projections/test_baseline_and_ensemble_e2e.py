@@ -10,6 +10,7 @@ import zarr
 from tests.synthetic import make_paths, small_config, synthetic_cells, write_cube
 from whitexmas.indicators import compute_all
 from whitexmas.projections.baseline import NX, NY, _from_indicators, load_baseline
+from whitexmas.projections.changes import ESTIMATOR
 from whitexmas.projections.settings import ProjPaths, ProjSettings
 
 
@@ -44,7 +45,9 @@ def _write_indicators(path, p_cells: dict):
                        "windows": json.dumps([{"id": "1996_2025"}])})  # fmt: skip
 
 
-def _write_model(pp: ProjPaths, name: str, delta: float):
+def _write_model(
+    pp: ProjPaths, name: str, delta: float, estimator: str = ESTIMATOR, land_source="sftlf"
+):
     lat = np.linspace(-80, 80, 9)
     lon = np.arange(0.0, 360.0, 30.0)
     d = np.full((3, 1, len(lat), len(lon)), delta, "float32")
@@ -52,6 +55,10 @@ def _write_model(pp: ProjPaths, name: str, delta: float):
     xr.Dataset(
         {"delta": (("gwl", "definition", "lat", "lon"), d)},
         coords={"gwl": [1.5, 2.0, 3.0], "definition": ["christmas_day"], "lat": lat, "lon": lon},
+        attrs={
+            **({"estimator": estimator} if estimator else {}),
+            **({"era5_land_source": land_source} if land_source else {}),
+        },
     ).to_netcdf(pp.models / f"{name}.nc")
 
 
@@ -67,6 +74,7 @@ def test_build_ensemble_end_to_end(tmp_path):
     build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))
     ds = xr.open_zarr(pp.ensemble)
     assert not ds.attrs["placeholder"] and json.loads(ds.attrs["models"]) == ["A", "B", "C"]
+    assert json.loads(ds.attrs["settings"])["estimator"] == ESTIMATOR
     e = ds.sel(definition="christmas_day", gwl=2.0)
     # 50 % with deltas (-1, -1, +0.5): median model is -1 -> 26.12 %
     assert float(e.p50[400, 1900]) == pytest.approx(26.12, abs=0.01)
@@ -93,4 +101,32 @@ def test_build_ensemble_refuses_a_placeholder_selection(tmp_path):
         {"reference": "placeholder-legacy-geotiff 2015_2024", "placeholder": True,
          "dropped": {}}))  # fmt: skip
     with pytest.raises(UntrustedSelection):
+        build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))
+
+
+@pytest.mark.parametrize("estimator", ["", "jeffreys-per-window"])
+def test_build_ensemble_refuses_changes_from_another_estimator(tmp_path, estimator):
+    # files from before the common-n fix carry a spurious change in never/always-white cells
+    from whitexmas.projections.ensemble import build_ensemble
+
+    paths = make_paths(tmp_path)
+    _write_indicators(paths.indicators, {(400, 1900): 50.0})
+    pp = ProjPaths.from_data(paths)
+    _write_model(pp, "A", -1.0)
+    _write_model(pp, "B", -1.0, estimator=estimator)
+    with pytest.raises(ValueError, match="re-run"):
+        build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))
+
+
+@pytest.mark.parametrize("land_source", ["placeholder-legacy-geotiff", "none", None])
+def test_build_ensemble_refuses_land_masks_not_from_sftlf_or_the_indicators(tmp_path, land_source):
+    from whitexmas.projections.ensemble import build_ensemble
+
+    paths = make_paths(tmp_path)
+    _write_indicators(paths.indicators, {(400, 1900): 50.0})
+    pp = ProjPaths.from_data(paths)
+    _write_model(pp, "A", -1.0)
+    _write_model(pp, "B", -1.0, land_source="indicators")  # fine: real ERA5-Land mask
+    _write_model(pp, "C", -1.0, land_source=land_source)
+    with pytest.raises(ValueError, match="land masks"):
         build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))

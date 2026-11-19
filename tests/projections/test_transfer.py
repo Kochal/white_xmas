@@ -66,3 +66,77 @@ def test_nan_propagates():
     assert np.isnan(d[0]) and d[1] == 0.0
     out = apply_change(np.array([np.nan, 40.0]), n_obs=30, delta=np.array([0.5, np.nan]))
     assert np.isnan(out).all()
+
+
+# Windows of different length (production: a 30-year baseline, 20-year warming-level windows).
+# Smoothing each window with its own n made equal frequencies look like a change.
+
+
+@pytest.mark.parametrize(
+    ("kb", "nb", "kf", "nf"),
+    [
+        (0, 30, 0, 20),  # never white in either window
+        (30, 30, 20, 20),  # always white in either window
+        (3, 30, 2, 20),  # 10 % in both
+        (27, 30, 18, 20),  # 90 % in both
+        (4.5, 30, 3.0, 20),  # fractional (pooled) counts, 15 % in both
+        (0, 20, 0, 30),  # and the other way round
+    ],
+)
+def test_same_frequency_in_windows_of_different_length_is_no_change(kb, nb, kf, nf):
+    d = logodds_change(kb, nb, kf, nf)
+    assert d == 0.0
+    base = np.array([0.0, 3.3, 50.0, 96.7, 100.0])
+    out = apply_change(base, n_obs=30, delta=d)
+    assert out[0] == 0.0 and out[-1] == 100.0  # exactly, not "about 0.8 %"
+    np.testing.assert_allclose(out, base, atol=1e-12)
+
+
+def test_never_white_cell_stays_at_zero():
+    # the reported bug: 0/30 -> 0/20 used to give +0.397 and London 0 % -> 0.79 %
+    d = logodds_change(0, 30, 0, 20)
+    assert apply_change(np.array([0.0]), n_obs=30, delta=d)[0] == 0.0
+    d_full = logodds_change(30, 30, 20, 20)
+    assert apply_change(np.array([100.0]), n_obs=30, delta=d_full)[0] == 100.0
+
+
+def test_equal_windows_are_plain_jeffreys():
+    # nothing changes for equal windows (the 30/30-year hindcast): logit((k+1/2)/(n+1))
+    from scipy.special import logit
+
+    for kb, kf in [(12, 4), (0, 3), (30, 29), (7.25, 9.5)]:
+        expect = logit((kf + 0.5) / 31) - logit((kb + 0.5) / 31)
+        assert logodds_change(kb, 30, kf, 30) == pytest.approx(expect, abs=1e-12)
+
+
+def test_common_smoothing_uses_the_shorter_window():
+    # 15/30 -> 5/20: f = 0.5 -> 0.25, both smoothed with m = 20
+    d = logodds_change(15, 30, 5, 20)
+    assert d == pytest.approx(np.log(5.5 / 15.5))
+    # swapping the windows reverses the sign exactly
+    assert logodds_change(5, 20, 15, 30) == pytest.approx(-d)
+
+
+def test_rare_event_cells_move_the_right_way_and_stay_finite():
+    one_to_none = logodds_change(1, 30, 0, 20)  # 3.3 % -> 0 %
+    none_to_one = logodds_change(0, 30, 1, 20)  # 0 % -> 5 %
+    assert np.isfinite(one_to_none) and one_to_none < 0
+    assert np.isfinite(none_to_one) and none_to_one > 0
+    # rarer in the future -> lower projection; never below 0 %
+    p = apply_change(np.array([0.0, 3.3, 10.0]), n_obs=30, delta=one_to_none)
+    assert p[0] == 0.0 and 0.0 <= p[1] < 3.3 and p[2] < 10.0
+    # monotone in the future count
+    ds = [logodds_change(1, 30, kf, 20) for kf in (0, 0.5, 1, 2, 4)]
+    assert all(a < b for a, b in zip(ds, ds[1:], strict=False))
+
+
+def test_per_cell_window_lengths_and_missing_windows():
+    # n varies per cell (a missing year); n = 0 gives NaN, not a warning-free zero
+    kb = np.array([0.0, 29.0, 5.0, 3.0])
+    nb = np.array([30, 29, 30, 0])
+    kf = np.array([0.0, 20.0, 2.0, 1.0])
+    nf = np.array([20, 20, 20, 20])
+    d = logodds_change(kb, nb, kf, nf)
+    assert d[0] == 0.0 and d[1] == 0.0
+    assert d[2] < 0
+    assert np.isnan(d[3])

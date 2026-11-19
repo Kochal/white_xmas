@@ -5,8 +5,8 @@ Output ``interim/projections/projections.zarr`` (dims ``definition, gwl, lat, lo
 
 - ``p10``, ``p50``, ``p90``: 10th, 50th, 90th percentile of the projected probability (%)
 - ``change``: ``p50`` minus the baseline (percentage points)
-- ``agree``: at least two thirds of the models agree on the direction of the change
-  (decrease, increase, or no change)
+- ``agree``: at least two thirds of the models agree on the direction of the change of their
+  projected probability (decrease, increase, or no change: less than ``NO_CHANGE_PP``)
 - ``n_models``: models with a value in the cell
 - ``baseline[definition, lat, lon]``, ``glacier[lat, lon]``
 
@@ -23,12 +23,22 @@ import numpy as np
 
 from ..paths import DataPaths
 from .baseline import NX, NY, load_baseline, target_grid
+from .changes import ESTIMATOR, GOOD_LAND_SOURCES
 from .regrid import bilinear, fill_nearest
 from .settings import ProjPaths, ProjSettings
 from .transfer import apply_change
 
 log = logging.getLogger(__name__)
-ZERO = 1e-6  # |delta| below this counts as "no change"
+NO_CHANGE_PP = 0.5
+"""A model "agrees on no change" in a cell when its projected probability differs from today's
+ERA5-Land probability by less than this many percentage points (decision S4 (b), 2026-11-19).
+
+The vote is on the model's projected probability, not on its log-odds change: a change of
+less than half a percentage point, or one that cannot show (a decline from 0 %, a rise from
+100 %), is "no change". With the earlier rule
+(|delta| < 1e-6) the bilinear regrid mixed exact zeros with tiny non-zero values, so places
+where every model projects today's 0 % were hatched as "models disagree". The same threshold
+applies to every definition, warming level, layer and point tile."""
 
 
 def nan_percentiles(x: np.ndarray, qs) -> np.ndarray:
@@ -51,13 +61,16 @@ def nan_percentiles(x: np.ndarray, qs) -> np.ndarray:
     return out
 
 
-def agreement(deltas: np.ndarray, share: float = 2 / 3) -> np.ndarray:
-    """``deltas[model, cell]`` → True where at least ``share`` of the models with a value agree
-    on the direction (negative, positive or zero)."""
-    valid = np.isfinite(deltas)
+def agreement(
+    change_pp: np.ndarray, share: float = 2 / 3, no_change_pp: float = NO_CHANGE_PP
+) -> np.ndarray:
+    """``change_pp[model, cell]``: each model's projected probability minus today's, in pp.
+    True where at least ``share`` of the models with a value agree on the direction: decrease
+    (≤ −``no_change_pp``), increase (≥ ``no_change_pp``) or no change (in between)."""
+    valid = np.isfinite(change_pp)
     nval = valid.sum(axis=0)
-    neg = (valid & (deltas < -ZERO)).sum(axis=0)
-    pos = (valid & (deltas > ZERO)).sum(axis=0)
+    neg = (valid & (change_pp <= -no_change_pp)).sum(axis=0)
+    pos = (valid & (change_pp >= no_change_pp)).sum(axis=0)
     zero = nval - neg - pos
     best = np.maximum(np.maximum(neg, pos), zero)
     return (nval > 0) & (best >= share * nval - 1e-9)
@@ -101,6 +114,19 @@ def build_ensemble(
     files = [f for f in files if f.stem not in exclude]
     if not files:
         raise FileNotFoundError(f"no per-model results in {pp.models}")
+    stale, land_sources = [], {}
+    for f in files:
+        with xr.open_dataset(f) as ds:
+            if ds.attrs.get("estimator") != ESTIMATOR:
+                stale.append(f.stem)
+            land_sources[f.stem] = ds.attrs.get("era5_land_source")
+    if stale:
+        # older files smoothed each window with its own length: a spurious change of +-0.4 in
+        # every never- or always-white cell (docs/projections.md, Method step 4)
+        raise ValueError(
+            f"per-model changes in {pp.models} were not made with the {ESTIMATOR!r} estimator "
+            f"({', '.join(stale)}); re-run `whitexmas projections changes`"
+        )
     names = [f.stem for f in files]
     defs = list(definitions or s.definitions)
     gwls = list(s.gwls)
@@ -114,6 +140,16 @@ def build_ensemble(
     thresholds = set()
     for di, d in enumerate(defs):
         b = load_baseline(paths, d, s.obs_window)
+        if di == 0 and not b.placeholder:
+            bad = {m: v for m, v in land_sources.items() if v not in GOOD_LAND_SOURCES}
+            if bad:
+                # a model without sftlf whose land mask came from the placeholder (or from no
+                # mask at all) would mix ocean cells into a real ensemble
+                raise ValueError(
+                    "per-model land masks not from sftlf or the ERA5-Land indicators: "
+                    + ", ".join(f"{m} ({v})" for m, v in sorted(bad.items()))
+                    + "; re-run `whitexmas projections changes`"
+                )
         sources.add(b.source)
         thresholds.add((b.threshold_id, b.threshold_cm))
         glacier |= b.glacier
@@ -121,7 +157,6 @@ def build_ensemble(
         base[di] = b.p
         for gi, g in enumerate(gwls):
             proj = np.full((len(files), len(cells[0])), np.nan, dtype="float32")
-            dl = np.full_like(proj, np.nan)
             for mi, f in enumerate(files):
                 with xr.open_dataset(f) as ds:
                     if d not in ds["definition"].values:
@@ -130,12 +165,12 @@ def build_ensemble(
                     lat, lon = ds["lat"].values, ds["lon"].values
                 if not np.isfinite(delta).any():
                     continue
-                dl[mi], proj[mi] = project_model(delta, lat, lon, b.p, b.n, cells)
+                _, proj[mi] = project_model(delta, lat, lon, b.p, b.n, cells)
             q = nan_percentiles(proj, (10, 50, 90))
             for k, v in zip(("p10", "p50", "p90"), q, strict=True):
                 out[k][di, gi][cells] = v
             out["change"][di, gi][cells] = q[1] - b.p[cells]
-            agree[di, gi][cells] = agreement(dl)
+            agree[di, gi][cells] = agreement(proj - b.p[cells][None, :])
             nmod[di, gi][cells] = np.isfinite(proj).sum(axis=0)
             log.info("ensemble %s +%s °C: %d models, %d cells", d, g, len(files), len(cells[0]))
     tlat, tlon = target_grid()
@@ -156,7 +191,9 @@ def build_ensemble(
             if thresholds
             else "null",
             "placeholder": any(src != "indicators" for src in sources),
-            "settings": json.dumps(s.as_attrs()),
+            # the estimator is part of the settings so consumers that fingerprint them (admin1)
+            # rebuild after an estimator change
+            "settings": json.dumps({**s.as_attrs(), "estimator": ESTIMATOR}),
         },
     )
     for k in ("p10", "p50", "p90", "change", "baseline"):
