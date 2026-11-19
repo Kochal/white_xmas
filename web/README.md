@@ -58,7 +58,7 @@ glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 re
 
 On Windows Git Bash, prefix `BASE_PATH=/white_xmas` with `MSYS_NO_PATHCONV=1` so the path isn't rewritten.
 Build both ways with `BASE_PATH=/white_xmas PUBLIC_SITE_URL=https://kochal.github.io/white_xmas npm run build`
-or `BASE_PATH= PUBLIC_SITE_URL=https://snowatchristmas.com npm run build`, each followed by `npm run check:build`.
+or `BASE_PATH= PUBLIC_SITE_URL=https://snowatchristmas.com npm run build`, each followed by `npm run check:build` (it needs the site URL: `PUBLIC_SITE_URL` or `--site-url`).
 
 ## Configuration (build-time environment variables)
 
