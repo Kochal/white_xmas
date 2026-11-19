@@ -182,6 +182,19 @@ describe('searchPlaces', () => {
 		}
 	});
 
+	it('lists no typo guesses next to an exact match', () => {
+		const withJunk = parsePlaces({
+			fields: ['name', 'ascii', 'country', 'admin1', 'alt', 'lat', 'lon', 'pop'],
+			rows: [
+				['Munich', 'Munich', 'DE', 'Bavaria', 'München', 48.1, 11.6, 1488202],
+				['Naucalpan', 'Naucalpan', 'MX', 'México', 'Municipio Naucalpan', 19.5, -99.2, 834434]
+			]
+		});
+		expect(searchPlaces(withJunk, 'Munich').map((h) => h.place.name)).toEqual(['Munich']);
+		// without an exact match the typo tolerance still applies
+		expect(searchPlaces(withJunk, 'Munick').map((h) => h.place.name)).toContain('Munich');
+	});
+
 	it('limits the number of hits', () => {
 		expect(searchPlaces(v1, 'mun', 2)).toHaveLength(2);
 	});

@@ -21,13 +21,13 @@
 </script>
 
 <svg
-	viewBox="-2 -16 {width + 4} {H + 34}"
+	viewBox="-30 -16 {width + 32} {H + 34}"
 	role="img"
 	aria-label="White Christmas probability per decade. {summary}"
 >
 	{#each [50, 100] as g (g)}
 		<line x1="-2" x2={width + 2} y1={H - (g / 100) * H} y2={H - (g / 100) * H} class="grid" />
-		<text x={width + 2} y={H - (g / 100) * H - 3} text-anchor="end" class="label">{g}%</text>
+		<text x="-6" y={H - (g / 100) * H + 3.5} text-anchor="end" class="label">{g}%</text>
 	{/each}
 	<line x1="-2" x2={width + 2} y1={H} y2={H} class="axis" />
 	{#each decades as d, k (d.window.id)}

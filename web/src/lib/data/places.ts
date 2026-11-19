@@ -91,4 +91,4 @@ export async function loadPlaces(
 }
 
 // Search lives in search.ts; re-exported here for convenience.
-export { fold, PlaceSearcher, searchPlaces, type SearchHit } from './search';
+export { fold, PlaceSearcher, searchPlaces, warmSearch, type SearchHit } from './search';

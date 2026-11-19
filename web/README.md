@@ -26,8 +26,12 @@ npm run dev        # http://localhost:$PANE_PORT (or 5173), using the fixtures
 | `build/data/` on GitHub Pages  | production                   | `pages.yml` unpacks the release bundle `whitexmas-web-data-<version>.tar.gz` there                  |
 
 The app fetches data from `PUBLIC_DATA_BASE`. It defaults to `<base>/data` in a build and to the
-fixtures in `vite dev`. To develop against real pipeline output, run
-`PUBLIC_DATA_BASE=/data npm run dev` after the pipeline has filled `static/data/`.
+fixtures in `vite dev`. To develop against real pipeline output, fill `static/data/` (from
+`whitexmas export --web-out web/static/data`, or by copying an export), put
+`PUBLIC_DATA_BASE=/data` in `web/.env.local` (git-ignored), and run `npm run dev`. A variable set
+on the command line is lost when the dev server regenerates its env module, and Git Bash rewrites
+`/data` into a Windows path unless `MSYS_NO_PATHCONV=1` is set. Remove `.env.local` again before
+building for a base path.
 
 The fixture data is obviously fake: a smooth latitude gradient with made-up mountains, lakes and a
 glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 real city names

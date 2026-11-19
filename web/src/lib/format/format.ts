@@ -32,7 +32,11 @@ export function signed(v: number, digits = 1): string {
 }
 
 export function latLonLabel(lat: number, lon: number): string {
-	return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
+	const la = Math.abs(lat).toFixed(1);
+	const lo = Math.abs(lon).toFixed(1);
+	const ns = la === '0.0' ? '' : lat > 0 ? 'N' : 'S';
+	const ew = lo === '0.0' || lo === '180.0' ? '' : lon > 0 ? 'E' : 'W';
+	return `${la}°${ns} ${lo}°${ew}`;
 }
 
 export function formatPopulation(pop: number): string {

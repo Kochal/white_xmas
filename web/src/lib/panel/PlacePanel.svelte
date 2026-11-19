@@ -73,6 +73,16 @@
 	);
 	const pNow = $derived(history && nowWin ? probability(strip, nowWin.start, nowWin.end) : null);
 	const trend = $derived(history && full ? olsTrend(strip, full.start, full.end) : null);
+	/** 'white' or 'green' when every year with data in the full period was the same. */
+	const fullRun = $derived.by(() => {
+		if (!full) return null;
+		const states = new Set(
+			strip
+				.filter((c) => c.year >= full.start && c.year <= full.end && c.state !== 'nodata')
+				.map((c) => c.state)
+		);
+		return states.size === 1 ? ([...states][0] as 'white' | 'green') : null;
+	});
 	const depthLabel = $derived(definition.id === 'christmas_day' ? 'on Dec 25' : 'on Dec 24–26');
 
 	const showFuture = $derived(
@@ -186,7 +196,12 @@
 			{#if trend}
 				<section>
 					<h3>Trend {full.label}</h3>
-					{#if trend.pValue < 0.1}
+					{#if fullRun}
+						<p>
+							<strong>No trend:</strong>
+							{fullRun === 'white' ? 'snow on the ground' : 'no snow'} in every year with data.
+						</p>
+					{:else if trend.pValue < 0.1}
 						<p>
 							<strong>{formatPp(trend.perDecade, 'pp per decade')}</strong>
 							<span class="muted">
@@ -202,7 +217,7 @@
 							)}) is within what year-to-year chance alone produces (p = {trend.pValue.toFixed(2)}).
 						</p>
 					{/if}
-					<p class="muted small">
+					<p class="muted small" class:hidden={!!fullRun}>
 						The slope and its range come from a straight line through {trend.n} yes/no years, a rough
 						summary; whether the trend is clear comes from a Mann–Kendall test (p &lt; 0.1), as on the
 						map. Luck from year to year is large, so read it as a direction, not a forecast.
@@ -376,6 +391,9 @@
 		font-variant-numeric: tabular-nums;
 		font-size: 0.9rem;
 		align-self: center;
+	}
+	.hidden {
+		display: none;
 	}
 	.fine {
 		margin-top: 8px;

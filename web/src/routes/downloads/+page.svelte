@@ -5,7 +5,7 @@
 	import { getDataSource } from '#lib/data/client.ts';
 	import type { Manifest } from '#lib/data/manifest.ts';
 
-	let manifest = $state<Manifest | null>(null);
+	let manifest = $state.raw<Manifest | null>(null);
 
 	const releaseUrl = $derived(
 		manifest && !manifest.data_version.includes('fixture')

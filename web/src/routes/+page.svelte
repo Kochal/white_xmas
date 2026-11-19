@@ -30,14 +30,14 @@
 	const ERA5_ATTRIBUTION =
 		'<a href="https://cds.climate.copernicus.eu/datasets/derived-era5-land-daily-statistics" target="_blank" rel="noopener">ERA5-Land</a> (Copernicus)';
 
-	let ds = $state<DataSource | null>(null);
-	let manifest = $state<Manifest | null>(null);
+	let ds = $state.raw<DataSource | null>(null);
+	let manifest = $state.raw<Manifest | null>(null);
 	let fatal = $state<string | null>(null);
 	let selection = $state<Selection>({ definition: '', kind: 'probability', period: '' });
 	let view = $state<View>(DEFAULT_VIEW);
 	let at = $state<{ lon: number; lat: number } | null>(null);
 	let label = $state<PlaceLabel | null>(null);
-	let lookup = $state<CellLookup | null>(null);
+	let lookup = $state.raw<CellLookup | null>(null);
 	let loading = $state(false);
 	let lookupError = $state<string | null>(null);
 	let panelExpanded = $state(false);
@@ -93,6 +93,20 @@
 		} finally {
 			if (seq === lookupSeq) loading = false;
 		}
+	}
+
+	/**
+	 * places.json is the largest file the page needs (~1.3 MB gzipped for ~34k places). Fetch
+	 * it once the page is idle, so the search answers right away on slow connections; the
+	 * search index itself is built when the box gets focus.
+	 */
+	function prefetchPlaces(source: DataSource) {
+		const start = () => source.places().catch(() => {});
+		const idle = (cb: () => void) =>
+			'requestIdleCallback' in window
+				? window.requestIdleCallback(cb, { timeout: 8000 })
+				: setTimeout(cb, 3000);
+		setTimeout(() => idle(start), 2500);
 	}
 
 	function placeLabel(p: Place): PlaceLabel {
@@ -155,6 +169,7 @@
 				selection = normalizeSelection(source.manifest, url.selection);
 				await tick();
 				ready = true;
+				prefetchPlaces(source);
 				if (url.at) {
 					// Name the place only if it is a places.json entry at that spot; a link can carry
 					// any text, so otherwise the panel shows the coordinates.

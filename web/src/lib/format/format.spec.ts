@@ -29,5 +29,8 @@ describe('number formatting', () => {
 	it('labels coordinates with hemispheres', () => {
 		expect(latLonLabel(48.1, 11.6)).toBe('48.1°N 11.6°E');
 		expect(latLonLabel(-33.9, -70.7)).toBe('33.9°S 70.7°W');
+		// the antimeridian and the equator / prime meridian have no hemisphere letter
+		expect(latLonLabel(65.5, -180)).toBe('65.5°N 180.0°');
+		expect(latLonLabel(0, 0)).toBe('0.0° 0.0°');
 	});
 });

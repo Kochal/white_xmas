@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { searchPlaces, type Place, type SearchHit } from '#lib/data/places.ts';
+	import { searchPlaces, warmSearch, type Place, type SearchHit } from '#lib/data/places.ts';
 	import { formatPct } from '#lib/format/format.ts';
 
 	interface Props {
@@ -12,7 +12,8 @@
 	let { loadPlaces, onpick }: Props = $props();
 
 	let query = $state('');
-	let places = $state<Place[] | null>(null);
+	// raw: 34k plain objects must not become deep reactive proxies (slow, and breaks the index cache)
+	let places = $state.raw<Place[] | null>(null);
 	let loadError = $state<string | null>(null);
 	let open = $state(false);
 	let active = $state(-1);
@@ -50,7 +51,10 @@
 	async function ensurePlaces() {
 		if (places || loadError) return;
 		try {
-			places = await loadPlaces();
+			const list = await loadPlaces();
+			// build the index now (the box has focus), not on the first keystroke
+			warmSearch(list);
+			places = list;
 		} catch (e) {
 			loadError = e instanceof Error ? e.message : String(e);
 		}
@@ -136,7 +140,13 @@
 		{onkeydown}
 	/>
 	{#if open && query.trim()}
-		<ul id={listId} role="listbox" aria-label="Places">
+		<ul
+			id={listId}
+			role="listbox"
+			aria-label="Places"
+			aria-busy={searched !== query}
+			class:stale={searched !== query && hits.length > 0}
+		>
 			{#each hits as h, k (h.place.name + h.place.lat + h.place.lon)}
 				<li
 					id="place-opt-{k}"
@@ -218,6 +228,9 @@
 		box-shadow: var(--shadow);
 		max-height: 320px;
 		overflow-y: auto;
+	}
+	ul.stale li {
+		opacity: 0.55;
 	}
 	li {
 		display: grid;

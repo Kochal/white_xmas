@@ -2,7 +2,7 @@
  * Client-side place search over name, ascii name and alternate names (contract v1.1).
  * Built for the real list (~34k GeoNames places, up to 7 names each) on a phone:
  *  - cheap passes first (exact, prefix, word prefix, substring); the fuzzy pass runs only
- *    when they find fewer than `limit` places;
+ *    when they find fewer than `limit` places and no exact match;
  *  - the fuzzy pass prunes by length and first letters, and reuses one DP buffer;
  *  - when the query grows by typing, only the previous candidates are rescanned.
  */
@@ -181,7 +181,10 @@ export class PlaceSearcher {
 		// pass 2: typo tolerance, only when the cheap passes found too few
 		let fuzzy: Int32Array | null = null;
 		const max = maxEdits(L);
-		if (L >= 4 && scores.size < limit) {
+		let exact = false;
+		for (const v of scores.values()) if (v.score >= 100) exact = true;
+		// no typo guesses next to an exact match ("Munich" shouldn't list "Municipio …")
+		if (L >= 4 && scores.size < limit && !exact) {
 			const pool = prev?.fuzzy && prev.fuzzyMax === max ? prev.fuzzy : this.#all;
 			if (this.#buf.length < 3 * (L + max + 2)) this.#buf = new Int32Array(3 * (L + max + 2));
 			const c0 = q.charCodeAt(0);
@@ -227,6 +230,11 @@ export class PlaceSearcher {
 }
 
 const searchers = new WeakMap<Place[], PlaceSearcher>();
+
+/** Builds the search index ahead of the first keystroke (e.g. when the box gets focus). */
+export function warmSearch(places: Place[]): void {
+	if (!searchers.has(places)) searchers.set(places, new PlaceSearcher(places));
+}
 
 /**
  * Search `places` (see {@link PlaceSearcher}). A trailing ", XX" (or " XX") country code

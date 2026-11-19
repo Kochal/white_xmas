@@ -9,10 +9,10 @@
 	import { formatPct, formatPopulation, formatPp, inTenYears } from '#lib/format/format.ts';
 	import { declines, snowiest } from '#lib/rankings.ts';
 
-	let manifest = $state<Manifest | null>(null);
-	let places = $state<Place[]>([]);
-	let meta = $state<PlacesMeta | null>(null);
-	let regions = $state<Region[]>([]);
+	let manifest = $state.raw<Manifest | null>(null);
+	let places = $state.raw<Place[]>([]);
+	let meta = $state.raw<PlacesMeta | null>(null);
+	let regions = $state.raw<Region[]>([]);
 	let error = $state<string | null>(null);
 	let minPop = $state(1_000_000);
 
@@ -24,8 +24,15 @@
 
 	const top = $derived(snowiest(places, minPop, 25));
 	const drops = $derived(declines(places, minPop, 25));
+	/** Countries that used to have white Christmases, biggest decline first. */
 	const regionRows = $derived(
-		[...regions].filter((r) => r.change !== null).sort((a, b) => a.change! - b.change!)
+		regions
+			.filter((r) => r.change !== null && r.p_then !== null && r.p_then >= 10)
+			.sort((a, b) => a.change! - b.change!)
+			.slice(0, 25)
+	);
+	const allRegions = $derived(
+		[...regions].sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }))
 	);
 	const winLabel = (id: string | undefined) =>
 		manifest?.windows.find((w) => w.id === id)?.label ?? id?.replace('_', '–') ?? '';
@@ -159,33 +166,42 @@
 			</table>
 		</div>
 
-		{#if regionRows.length}
+		{#if regions.length}
 			<h2 id="countries">By country</h2>
 			<p class="muted small">
-				Area-weighted averages over each country's land, glaciers excluded. Sorted by change.
+				Area-weighted averages over each country's land, glaciers excluded. The table shows the 25
+				largest declines among countries that had a white Christmas in at least 1 in 10 years in
+				{thenLabel}.
 			</p>
-			<div class="table-wrap">
-				<table aria-labelledby="countries">
-					<thead>
-						<tr>
-							<th scope="col">Country</th>
-							<th scope="col" class="num">{thenLabel}</th>
-							<th scope="col" class="num">{nowLabel}</th>
-							<th scope="col" class="num">Change</th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each regionRows as r (r.iso_a3)}
+			{#snippet regionTable(rows: Region[], label: string)}
+				<div class="table-wrap">
+					<table aria-label={label}>
+						<thead>
 							<tr>
-								<td>{r.name}</td>
-								<td class="num">{formatPct(r.p_then)}</td>
-								<td class="num">{formatPct(r.p_now)}</td>
-								<td class="num">{formatPp(r.change, 'pp', 1)}</td>
+								<th scope="col">Country</th>
+								<th scope="col" class="num">{thenLabel}</th>
+								<th scope="col" class="num">{nowLabel}</th>
+								<th scope="col" class="num">Change</th>
 							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
+						</thead>
+						<tbody>
+							{#each rows as r, k (`${r.iso_a3}-${r.name}-${k}`)}
+								<tr>
+									<td>{r.name}</td>
+									<td class="num">{formatPct(r.p_then)}</td>
+									<td class="num">{formatPct(r.p_now)}</td>
+									<td class="num">{formatPp(r.change, 'pp', 1)}</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+			{/snippet}
+			{@render regionTable(regionRows, 'Largest declines by country')}
+			<details class="all">
+				<summary>All {allRegions.length} countries and territories, A–Z</summary>
+				{@render regionTable(allRegions, 'All countries')}
+			</details>
 		{/if}
 	{/if}
 </div>
@@ -216,6 +232,14 @@
 		text-align: right;
 		font-variant-numeric: tabular-nums;
 		white-space: nowrap;
+	}
+	.all {
+		margin-top: 12px;
+	}
+	.all summary {
+		cursor: pointer;
+		color: var(--accent);
+		padding: 6px 0;
 	}
 	.rank {
 		color: var(--muted);
