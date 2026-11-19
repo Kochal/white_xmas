@@ -109,18 +109,27 @@ def validate(
 
     paths, pp, s = _setup(verbose, threshold, pool, None)
     per = tuple(int(x) for x in period.split("-")) if period else None
-    res = validation.validate(paths, s, model, per)
-    for r in res["models"]:
-        typer.echo(json.dumps(r))
-    amount = validation.snow_amount(paths, s, model, per or (1961, 1990))
-    typer.echo(f"snow amount (ERA5-Land median {amount['era5_median_swe_kg_m2']:.1f} kg m-2):")
-    for r in amount["models"]:
-        typer.echo(json.dumps(r))
-    stem = "skill" if per is None or per == tuple(s.baseline) else f"skill_{per[0]}_{per[1]}"
-    sel = validation.select_models(pp.validation, f"{stem}.json")
-    typer.echo(f"kept {len(sel['kept'])}: {', '.join(sel['kept'])}")
-    for m, why in sel["dropped"].items():
-        typer.echo(f"dropped {m}: {why}")
+    try:
+        res = validation.validate(paths, s, model, per)
+    except FileNotFoundError as e:
+        typer.echo(f"validation skipped, selection.json left unchanged: {e}")
+        res = None
+    if res is not None:
+        for r in res["models"]:
+            typer.echo(json.dumps(r))
+        amount = validation.snow_amount(paths, s, model, per or (1961, 1990))
+        era_med = amount["era5_median_swe_kg_m2"]
+        if era_med is None:
+            typer.echo("snow amount: no ERA5-Land raw files for that period, check skipped")
+        else:
+            typer.echo(f"snow amount (ERA5-Land median {era_med:.1f} kg m-2):")
+            for r in amount["models"]:
+                typer.echo(json.dumps(r))
+        stem = "skill" if per is None or per == tuple(s.baseline) else f"skill_{per[0]}_{per[1]}"
+        sel = validation.select_models(pp.validation, f"{stem}.json")
+        typer.echo(f"kept {len(sel['kept'])}: {', '.join(sel['kept'])}")
+        for m, why in sel["dropped"].items():
+            typer.echo(f"dropped {m}: {why}")
     if hindcast:
         try:
             hc = validation.hindcast(paths, s, model)

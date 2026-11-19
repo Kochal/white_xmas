@@ -88,15 +88,20 @@ def validate(
     d = "christmas_day"
     b0, b1 = period or s.baseline
     era = era5_window_frequency(paths, d, b0, b1)
-    era_src = f"ERA5-Land {b0}-{b1}"
     if era is None:
-        bl = load_baseline(paths, d, s.obs_window)
-        era = bl.p / 100.0
-        era_src = f"{bl.source} {bl.window} (cube missing)"
-        glacier = bl.glacier
+        # Never fall back to the placeholder baseline: a selection made against it would
+        # silently decide which models enter the real ensemble.
+        raise FileNotFoundError(
+            f"ERA5-Land {b0}-{b1} is not available (no snow cube and fewer than 80 % of the "
+            "raw years on disk); validation needs real ERA5-Land data and never uses the "
+            "placeholder baseline"
+        )
+    era_src = f"ERA5-Land {b0}-{b1}"
+    bl = load_baseline(paths, d, s.obs_window)
+    if bl.placeholder:
+        era_src += " (no glacier mask yet)"
     else:
-        glacier = load_baseline(paths, d, s.obs_window).glacier
-    era = np.where(glacier, np.nan, era)
+        era = np.where(bl.glacier, np.nan, era)
     rows = []
     hs = ProjSettings(**{**s.__dict__, "definitions": (d,)})
     for f in sorted(pp.models.glob("*.nc")):
@@ -131,6 +136,7 @@ def validate(
         log.info("bias %s: %s", f.stem, sc)
     out = {
         "reference": era_src,
+        "placeholder": False,
         "region": f"land {REGION[0]}-{REGION[1]} N, cos-lat weighted",
         "threshold_kg_m2": s.threshold_kg_m2,
         "pool_days": s.pool_days,
@@ -309,8 +315,12 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
     reasons: dict[str, list[str]] = {}
     models: set[str] = set()
     sk = validation_dir / skill_file
+    reference, placeholder = None, True
     if sk.exists():
-        for r in json.loads(sk.read_text())["models"]:
+        skill = json.loads(sk.read_text())
+        reference = skill.get("reference")
+        placeholder = bool(skill.get("placeholder", True))
+        for r in skill["models"]:
             models.add(r["model"])
             if r.get("corr") is not None and r["corr"] < MIN_CORR:
                 reasons.setdefault(r["model"], []).append(f"pattern correlation {r['corr']}")
@@ -325,6 +335,8 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
             if q is not None and not AMOUNT_RATIO_RANGE[0] <= q <= AMOUNT_RATIO_RANGE[1]:
                 reasons.setdefault(r["model"], []).append(f"snow amount {q}x ERA5-Land")
     out = {
+        "reference": reference,
+        "placeholder": placeholder,
         "rule": {
             "amount_ratio_range": AMOUNT_RATIO_RANGE,
             "min_corr": MIN_CORR,
@@ -338,9 +350,23 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
     return out
 
 
+class UntrustedSelection(RuntimeError):
+    """selection.json was not made against real ERA5-Land data."""
+
+
 def dropped_models(validation_dir: Path) -> list[str]:
+    """Models dropped by the saved selection. Refuses a selection that was made against the
+    placeholder baseline or that does not record its reference (written before that check)."""
     f = validation_dir / "selection.json"
-    return sorted(json.loads(f.read_text())["dropped"]) if f.exists() else []
+    if not f.exists():
+        return []
+    sel = json.loads(f.read_text())
+    if sel.get("placeholder", True) or not sel.get("reference"):
+        raise UntrustedSelection(
+            f"{f} was not made against real ERA5-Land data (reference: "
+            f"{sel.get('reference')!r}); re-run `whitexmas projections validate`"
+        )
+    return sorted(sel["dropped"])
 
 
 def _write_table(stem: Path, rows: list[dict]) -> None:

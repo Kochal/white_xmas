@@ -45,7 +45,8 @@ def test_selection_rule_drops_gross_errors(tmp_path):
 
     from whitexmas.projections.validation import dropped_models, select_models
 
-    (tmp_path / "skill.json").write_text(json.dumps({"models": [
+    (tmp_path / "skill.json").write_text(json.dumps({
+        "reference": "ERA5-Land 1995-2014", "placeholder": False, "models": [
         {"model": "Good", "corr": 0.95, "mae_transition_pp": 15.0},
         {"model": "Pattern", "corr": 0.6, "mae_transition_pp": 20.0},
         {"model": "Melt", "corr": 0.9, "mae_transition_pp": 20.0},
@@ -59,4 +60,31 @@ def test_selection_rule_drops_gross_errors(tmp_path):
     assert sel["kept"] == ["Good"]
     assert set(sel["dropped"]) == {"Pattern", "Melt"}
     assert "snow amount" in sel["dropped"]["Melt"]
+    assert sel["reference"] == "ERA5-Land 1995-2014" and sel["placeholder"] is False
     assert dropped_models(tmp_path) == ["Melt", "Pattern"]
+
+
+def test_selection_made_without_real_era5_is_refused(tmp_path):
+    import json
+
+    from whitexmas.projections.validation import UntrustedSelection, dropped_models
+
+    assert dropped_models(tmp_path) == []  # no selection yet: nothing dropped
+    for sel in (
+        {"reference": "placeholder-legacy-geotiff 2015_2024", "placeholder": True, "dropped": {}},
+        {"dropped": {"X": "old selection without a reference"}},
+    ):
+        (tmp_path / "selection.json").write_text(json.dumps(sel))
+        with pytest.raises(UntrustedSelection):
+            dropped_models(tmp_path)
+
+
+def test_validate_never_falls_back_to_the_placeholder(tmp_path):
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.settings import ProjSettings
+    from whitexmas.projections.validation import validate
+
+    paths = DataPaths(tmp_path)  # no snow cube, no raw ERA5-Land files
+    with pytest.raises(FileNotFoundError, match="never uses the placeholder"):
+        validate(paths, ProjSettings())
+    assert not (tmp_path / "interim" / "projections" / "validation" / "selection.json").exists()
