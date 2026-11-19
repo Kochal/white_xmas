@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RegionRow } from '#lib/data/admin1.ts';
-import { countryOptions, rankRegions } from './admin1-rankings';
+import { countryOptions, rankRegions, rankSummary } from './admin1-rankings';
 
 const row = (
 	id: string,
@@ -12,6 +12,8 @@ const row = (
 	num: 0,
 	id,
 	name: id,
+	name_local: '',
+	type: '',
 	country,
 	lon: 0,
 	lat: 0,
@@ -23,6 +25,7 @@ const row = (
 	change: p_then !== null && p_now !== null ? p_now - p_then : null,
 	trend: null,
 	trend_p: null,
+	trend_q: null,
 	p_now_pop: null,
 	p_then_raw: null,
 	p_now_raw: null,
@@ -66,6 +69,52 @@ describe('rankRegions', () => {
 	it('breaks ties by name', () => {
 		const tie = [row('Z', 'X', 50, 40), row('M', 'X', 50, 40)];
 		expect(ids(rankRegions(tie, 'snowiest', {}, 5))).toEqual(['M', 'Z']);
+	});
+});
+
+describe('ties and the ends of the scale (world lists)', () => {
+	const full = (r: RegionRow, p_full: number): RegionRow => ({ ...r, p_full });
+	const TIES = [
+		full(row('Z-ALL', 'RUS', 100, 100), 100),
+		full(row('B-LOSS', 'RUS', 100, 100), 99), // shorter record at 100 % ranks lower
+		full(row('A-SAME', 'RUS', 98, 100), 100), // same p_full: earlier normal decides
+		full(row('ANT-1', 'ATA', 100, 100), 100), // Antarctica is not ranked worldwide
+		full(row('DRY-1', 'EGY', 0, 0), 0),
+		full(row('DRY-2', 'EGY', 0, 0), 0),
+		full(row('RARE', 'EGY', 1, 0.4), 0.8),
+		full(row('FEW', 'EGY', 3, 2), 2)
+	];
+
+	it('breaks ties by the long record, then the earlier normal, then the name', () => {
+		expect(ids(rankRegions(TIES, 'snowiest', {}, 3))).toEqual(['Z-ALL', 'A-SAME', 'B-LOSS']);
+	});
+
+	it('leaves Antarctica out of the world lists but not out of its own country', () => {
+		expect(ids(rankRegions(TIES, 'snowiest', {}, 10))).not.toContain('ANT-1');
+		expect(ids(rankRegions(TIES, 'snowiest', { country: 'ATA' }, 10))).toEqual(['ANT-1']);
+	});
+
+	it('lists only regions that ever had snow as least snowy, and counts the rest', () => {
+		expect(ids(rankRegions(TIES, 'least_snowy', {}, 10))).toEqual([
+			'RARE',
+			'FEW',
+			'B-LOSS',
+			'A-SAME',
+			'Z-ALL'
+		]);
+		const s = rankSummary(TIES, 'least_snowy', {});
+		expect(s.never).toBe(2);
+		expect(s.total).toBe(5);
+	});
+
+	it('says how many regions share the top value', () => {
+		expect(rankSummary(TIES, 'snowiest', {})).toEqual({
+			total: 8 - 1,
+			top: { value: 100, count: 3 },
+			never: 0
+		});
+		expect(rankSummary(TIES, 'decline', {}).top).toBeNull();
+		expect(rankSummary([], 'snowiest', {})).toEqual({ total: 0, top: null, never: 0 });
 	});
 });
 

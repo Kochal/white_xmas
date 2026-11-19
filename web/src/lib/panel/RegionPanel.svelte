@@ -16,10 +16,11 @@
 		hasValues,
 		headlineWindowId,
 		pickStats,
+		regionHeadline,
 		spreadAt,
 		trendInfo
 	} from '#lib/data/region-view.ts';
-	import { formatP, formatPct, formatPp, frequencyLine } from '#lib/format/format.ts';
+	import { formatP, formatPct, formatPp } from '#lib/format/format.ts';
 	import type { Selection } from '#lib/map/layers.ts';
 	import DecadeBars from './DecadeBars.svelte';
 	import FutureRanges from './FutureRanges.svelte';
@@ -97,6 +98,14 @@
 					)
 			: []
 	);
+	/** The then-to-now change as the pipeline computed it from unrounded values. */
+	const change = $derived(
+		stats && stats.change !== null
+			? stats.change
+			: pThen !== null && pNow !== null
+				? pNow - pThen
+				: null
+	);
 	const decades = $derived(stats && country ? decadeBars(manifest, country, stats) : []);
 	const trend = $derived(stats && country ? trendInfo(stats, country.trend_alpha) : null);
 	const spread = $derived(stats && country ? spreadAt(country, stats, headId) : null);
@@ -143,10 +152,10 @@
 			<p class="big" data-testid="headline">{formatPct(head)}</p>
 			{#if head !== null}
 				<p>
-					<strong>{frequencyLine(definition.label, head)}</strong>
-					<span class="muted">
-						(share of the region's land, {headWin?.label})
-					</span>
+					<strong>
+						{regionHeadline(row.name, definition.id, definition.label, formatPct(head))}
+					</strong>
+					<span class="muted">({headWin?.label})</span>
 				</p>
 				{#if byThreshold.length}
 					<p class="both" data-testid="both-thresholds">
@@ -164,11 +173,11 @@
 			{/if}
 			<p class="people small" data-testid="pop-weighted">
 				{#if headPop !== null}
-					Where people live: <strong>{formatPct(headPop)}</strong>, weighting the
-					{nPlaces.toLocaleString('en')} places of 15,000+ people by their population.
+					In the places where people live (the {nPlaces.toLocaleString('en')} towns and cities of 15,000+
+					people, weighted by population): <strong>{formatPct(headPop)}</strong>.
 				{:else}
-					No place of 15,000+ people lies in this region, so there is no value weighted by
-					population.
+					No town or city of 15,000+ people lies in this region, so there is no value for where
+					people live.
 				{/if}
 			</p>
 		</section>
@@ -203,8 +212,8 @@
 						<span class="muted">{nowWin.label}</span>
 						<strong>{formatPct(pNow)}</strong>
 					</div>
-					{#if pThen !== null && pNow !== null}
-						<div class="delta">{formatPp(pNow - pThen)}</div>
+					{#if change !== null}
+						<div class="delta">{formatPp(change)}</div>
 					{/if}
 				</div>
 			</section>
@@ -222,20 +231,33 @@
 			<RegionSeries series={stats.series} firstYear={country.years[0]} window={headWin} />
 			{#if trend}
 				<p class="trend" data-testid="region-trend">
-					<strong>{formatPp(trend.perDecade, 'pp per decade')}</strong>
-					{#if trend.significant}
-						<span class="sig yes" data-testid="trend-significance">● clear trend</span>
-						<span class="muted">({trend.p === null ? '' : formatP(trend.p)})</span>
-					{:else}
-						<span class="sig" data-testid="trend-significance">○ not a clear trend</span>
-						{#if trend.p !== null}<span class="muted">({formatP(trend.p)})</span>{/if}
-					{/if}
+					<strong>{formatPp(trend.perDecade, 'percentage points per decade')}</strong>
+					<span
+						class="sig"
+						class:yes={trend.likely}
+						data-testid="trend-significance"
+						title="Each region is tested on its own; see the note below."
+					>
+						{trend.likely ? '● likely trend' : '○ no clear trend'}
+					</span>
 					<span class="muted">{fullWin?.label ?? ''}</span>
 				</p>
-				<p class="muted small">
-					The slope is a straight line through the yearly shares. A trend is called clear when a
-					Mann–Kendall test gives p &lt; {country.trend_alpha}, as on the map; if not, the line is
-					within what luck from year to year produces.
+				<p class="muted small" data-testid="trend-note">
+					The slope is a straight line through the yearly shares.
+					{#if trend.likely}
+						It counts as a likely trend because
+						{#if trend.adjusted}
+							the Mann–Kendall test, adjusted for testing thousands of regions at once
+							(Benjamini–Hochberg), gives p &lt; {country.trend_alpha}.
+						{:else}
+							a Mann–Kendall test gives p &lt; {country.trend_alpha}. Every region is tested on its
+							own, so about 1 region in 10 with no real change at all still passes.
+						{/if}
+					{:else}
+						No clear trend: the line is within what luck from year to year produces
+						{#if !trend.adjusted && trend.p !== null}({formatP(trend.p)}){/if}.
+					{/if}
+					Read it as a direction, not a forecast.
 				</p>
 			{/if}
 		</section>

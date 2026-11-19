@@ -31,6 +31,10 @@ export interface RegionRow {
 	/** ISO 3166-2 code or a fallback (`DE-BY`). */
 	id: string;
 	name: string;
+	/** Name in the local language when it differs ("Bayern"); '' when the index omits it. */
+	name_local: string;
+	/** "State", "Province", …; '' when the index doesn't carry it. */
+	type: string;
 	/** ISO 3166-1 alpha-3, the key of `regions.json` and of `countries`. */
 	country: string;
 	lon: number;
@@ -46,6 +50,8 @@ export interface RegionRow {
 	trend: number | null;
 	/** Mann–Kendall p of the regional series. */
 	trend_p: number | null;
+	/** Benjamini–Hochberg adjusted p over all regions, when the data has it. */
+	trend_q: number | null;
 	/** Population-weighted p_now (places of 15,000+). */
 	p_now_pop: number | null;
 	p_then_raw: number | null;
@@ -62,7 +68,7 @@ export interface Admin1Index {
 	threshold: string;
 	definition: string;
 	windows: { p_full: string; p_then: string; p_now: string };
-	/** trend_p below this counts as significant. */
+	/** trend_q (else trend_p) below this counts as a likely trend. */
 	trend_alpha: number;
 	rows: RegionRow[];
 	countries: Record<string, { name: string; regions: number }>;
@@ -83,6 +89,8 @@ export interface RegionStats {
 	change_pop: number | null;
 	trend: number | null;
 	trend_p: number | null;
+	/** Benjamini–Hochberg adjusted p over all regions, when the data has it. */
+	trend_q: number | null;
 	/** % of the area that was white, per year from `years[0]`. */
 	series: (number | null)[];
 }
@@ -193,6 +201,8 @@ export function parseAdmin1Index(raw: unknown): Admin1Index {
 			num: k,
 			id: str(get('id')),
 			name: str(get('name')),
+			name_local: str(get('name_local')),
+			type: str(get('type')),
 			country: str(get('country')),
 			lon: num(get('lon')) ?? 0,
 			lat: num(get('lat')) ?? 0,
@@ -204,6 +214,7 @@ export function parseAdmin1Index(raw: unknown): Admin1Index {
 			change: num(get('change')),
 			trend: num(get('trend')),
 			trend_p: num(get('trend_p')),
+			trend_q: num(get('trend_q')),
 			p_now_pop: num(get('p_now_pop')),
 			p_then_raw: num(get('p_then_raw')),
 			p_now_raw: num(get('p_now_raw')),
@@ -249,6 +260,7 @@ function parseStats(raw: unknown): RegionStats | null {
 		change_pop: num(raw.change_pop),
 		trend: num(raw.trend),
 		trend_p: num(raw.trend_p),
+		trend_q: num(raw.trend_q),
 		series: nums(raw.series)
 	};
 }

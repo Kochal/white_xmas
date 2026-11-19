@@ -9,6 +9,7 @@ import {
 	hasValues,
 	headlineWindowId,
 	pickStats,
+	regionHeadline,
 	seriesFit,
 	spreadAt,
 	trendInfo
@@ -50,6 +51,7 @@ const stats = (p: number[]) => ({
 	change_pop: -4,
 	trend: -1.5,
 	trend_p: 0.03,
+	trend_q: null,
 	series: [10, 20, 30]
 });
 
@@ -136,12 +138,27 @@ describe('windows', () => {
 });
 
 describe('trend and series', () => {
-	it('marks a trend significant below the data alpha', () => {
+	it('calls a trend likely when p is below the data alpha (no adjusted value)', () => {
 		const s = region.stats.calibrated.christmas_day;
-		expect(trendInfo(s, 0.1)).toEqual({ perDecade: -1.5, p: 0.03, significant: true });
-		expect(trendInfo({ ...s, trend_p: 0.1 }, 0.1)?.significant).toBe(false);
-		expect(trendInfo({ ...s, trend_p: null }, 0.1)?.significant).toBe(false);
+		expect(trendInfo(s, 0.1)).toEqual({
+			perDecade: -1.5,
+			p: 0.03,
+			q: null,
+			adjusted: false,
+			likely: true
+		});
+		expect(trendInfo({ ...s, trend_p: 0.1 }, 0.1)?.likely).toBe(false);
+		expect(trendInfo({ ...s, trend_p: null }, 0.1)?.likely).toBe(false);
 		expect(trendInfo({ ...s, trend: null }, 0.1)).toBeNull();
+	});
+
+	it('uses the Benjamini-Hochberg q instead of p when the data has it', () => {
+		const s = region.stats.calibrated.christmas_day;
+		// clear on its own (p 0.03) but not after adjusting for thousands of regions
+		const unlikely = trendInfo({ ...s, trend_q: 0.4 }, 0.1)!;
+		expect([unlikely.likely, unlikely.adjusted, unlikely.q]).toEqual([false, true, 0.4]);
+		const likely = trendInfo({ ...s, trend_p: 0.0004, trend_q: 0.02 }, 0.1)!;
+		expect([likely.likely, likely.adjusted]).toEqual([true, true]);
 	});
 
 	it('fits a line through a yearly series, skipping gaps', () => {
@@ -155,6 +172,21 @@ describe('trend and series', () => {
 	it('knows when a region has no values at all', () => {
 		expect(hasValues(region.stats.calibrated.christmas_day)).toBe(true);
 		expect(hasValues({ ...stats([]), p: [null, null], series: [null] })).toBe(false);
+	});
+});
+
+describe('regionHeadline', () => {
+	it('says what the number is: the share of the land that has snow', () => {
+		expect(regionHeadline('Bavaria', 'christmas_day', 'Snow on Christmas Day', '28%')).toBe(
+			'On a typical Christmas Day about 28% of the land in Bavaria has snow'
+		);
+		expect(regionHeadline('Tyrol', 'all_three_days', 'x', '9%')).toContain('on all three days');
+		expect(regionHeadline('Tyrol', 'any_day', 'x', '9%')).toContain(
+			'at least one of 24–26 December'
+		);
+		expect(regionHeadline('Tyrol', 'new_def', 'Snow on New Year', '9%')).toBe(
+			'Snow on New Year: about 9% of the land in Tyrol'
+		);
 	});
 });
 

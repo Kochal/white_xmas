@@ -71,18 +71,51 @@ export function decadeBars(
 
 export interface TrendInfo {
 	perDecade: number;
+	/** The test's p-value (Mann-Kendall) of this region alone. */
 	p: number | null;
-	/** p below the data's alpha: the trend is clear, not year-to-year chance. */
-	significant: boolean;
+	/** Benjamini-Hochberg adjusted p over all regions, when the data has it. */
+	q: number | null;
+	/** True when the likely-trend call rests on q, not on the single-region p. */
+	adjusted: boolean;
+	/**
+	 * A likely trend: q (else p) is below the data's alpha. It is a per-region test, so about
+	 * one region in ten without any real change passes it when only p is available.
+	 */
+	likely: boolean;
 }
 
 export function trendInfo(stats: RegionStats, alpha: number): TrendInfo | null {
 	if (stats.trend === null) return null;
+	const basis = stats.trend_q ?? stats.trend_p;
 	return {
 		perDecade: stats.trend,
 		p: stats.trend_p,
-		significant: stats.trend_p !== null && stats.trend_p < alpha
+		q: stats.trend_q,
+		adjusted: stats.trend_q !== null,
+		likely: basis !== null && basis < alpha
 	};
+}
+
+/**
+ * The headline sentence: unambiguous about what the number is, the share of the region's land
+ * that has snow, not "the chance at one spot".
+ */
+export function regionHeadline(
+	name: string,
+	definitionId: string,
+	definitionLabel: string,
+	pct: string
+): string {
+	switch (definitionId) {
+		case 'christmas_day':
+			return `On a typical Christmas Day about ${pct} of the land in ${name} has snow`;
+		case 'all_three_days':
+			return `In a typical year about ${pct} of the land in ${name} has snow on all three days, 24–26 December`;
+		case 'any_day':
+			return `In a typical year about ${pct} of the land in ${name} has snow on at least one of 24–26 December`;
+		default:
+			return `${definitionLabel}: about ${pct} of the land in ${name}`;
+	}
 }
 
 /** Least-squares line through a yearly series (gaps skipped); null with fewer than 3 points. */

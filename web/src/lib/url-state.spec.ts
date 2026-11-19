@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	parseRegionHash,
+	rejectedRegionHash,
 	parseUrlState,
 	regionHash,
 	serializeUrl,
@@ -41,10 +42,11 @@ describe('URL state', () => {
 });
 
 describe('URL state: states and provinces', () => {
-	it('reads #/region/<id> and switches the borders layer on', () => {
+	it('reads #/region/<id> and leaves the borders layer as the link says', () => {
 		const s = parseUrlState(new URLSearchParams(''), '#/region/DE-BY');
 		expect(s.region).toBe('DE-BY');
-		expect(s.regions).toBe(true);
+		// a region draws its own outline; the borders switch is the user's (?regions=1)
+		expect(s.regions).toBeUndefined();
 	});
 
 	it('lets a region link win over a point', () => {
@@ -69,10 +71,13 @@ describe('URL state: states and provinces', () => {
 			'#/place/DE-BY',
 			'#/region/%E0%A4',
 			'#/region/<script>',
-			'#/region/' + 'A'.repeat(40)
+			'#/region/' + 'A'.repeat(49)
 		])
 			expect(parseRegionHash(h), h).toBeUndefined();
 		expect(parseRegionHash('#/region/DE-BY/')).toBe('DE-BY');
+		// the longest real id has 25 characters; the limit is 48
+		expect(parseRegionHash('#/region/SVN-JUGOVZHODNA-SLOVENIJA')).toBe('SVN-JUGOVZHODNA-SLOVENIJA');
+		expect(parseRegionHash('#/region/' + 'A'.repeat(48))).toBeDefined();
 		expect(parseRegionHash('#/region/US-DC')).toBe('US-DC');
 	});
 
@@ -87,5 +92,16 @@ describe('URL state: states and provinces', () => {
 	it('never writes an unsafe region id into the URL', () => {
 		expect(regionHash('a b/c')).toBe('');
 		expect(regionHash(undefined)).toBe('');
+	});
+
+	it('keeps the text of a rejected region link, so the page can say there is no such region', () => {
+		const long = 'A'.repeat(49);
+		expect(parseUrlState(new URLSearchParams(''), `#/region/${long}`).regionRejected).toBe(long);
+		const bad = parseUrlState(new URLSearchParams(''), '#/region/<b>x</b>');
+		expect(bad.region).toBeUndefined();
+		expect(bad.regionRejected).toBe('bx/b');
+		expect(parseUrlState(new URLSearchParams(''), '#/region/DE-BY').regionRejected).toBeUndefined();
+		expect(parseUrlState(new URLSearchParams(''), '#/other').regionRejected).toBeUndefined();
+		expect(rejectedRegionHash('#/region/' + 'x'.repeat(200))).toHaveLength(60);
 	});
 });

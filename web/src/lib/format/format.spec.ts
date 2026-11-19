@@ -50,6 +50,10 @@ describe('formatP', () => {
 	it('reads as a sentence fragment, with few digits for large p', () => {
 		expect(formatP(0.43)).toBe('p = 0.43');
 		expect(formatP(0.0312)).toBe('p = 0.03');
+		// truncated: below 0.1 it must never print as "p = 0.10"
+		expect(formatP(0.0996)).toBe('p = 0.09');
+		expect(formatP(0.1)).toBe('p = 0.10');
+		expect(formatP(0.0069)).toBe('p = 0.006');
 		expect(formatP(0.004)).toBe('p = 0.004');
 		expect(formatP(0.0004)).toBe('p < 0.001');
 		expect(formatP(0)).toBe('p < 0.001');

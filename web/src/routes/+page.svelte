@@ -2,12 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { DATA_BASE } from '#lib/config.ts';
-	import type {
-		Admin1Index,
-		BoundaryCollection,
-		CountryFile,
-		RegionRow
-	} from '#lib/data/admin1.ts';
+	import type { Admin1Index, CountryFile, RegionRow } from '#lib/data/admin1.ts';
 	import type { Layer, LayerKind, Manifest } from '#lib/data/manifest.ts';
 	import type { Place } from '#lib/data/places.ts';
 	import type { CellLookup, DataSource } from '#lib/data/source.ts';
@@ -35,6 +30,7 @@
 	import Seo from '#lib/components/Seo.svelte';
 	import {
 		parseRegionHash,
+		rejectedRegionHash,
 		parseUrlState,
 		serializeUrl,
 		type MapView as View
@@ -65,13 +61,17 @@
 	let mapView = $state<ReturnType<typeof MapView> | null>(null);
 
 	// states and provinces (contract v1.6): all of it loads lazily, never with the first paint
+	/** The user's "States and provinces" switch: borders, names and hover on the whole map. */
 	let regionsOn = $state(false);
 	let regionIndex = $state.raw<Admin1Index | null>(null);
-	let boundaries = $state.raw<BoundaryCollection | null>(null);
+	let indexLoading = $state(false);
+	let outlineStatus = $state<'idle' | 'loading' | 'ready' | 'error'>('idle');
+	/** Save-Data and 2G users don't get the 1.4 MB outlines just to see one region's edge. */
+	let outlinesOk = true;
 	let regionId = $state<string | null>(null);
 	let regionCountry = $state.raw<CountryFile | null>(null);
 	let regionError = $state<string | null>(null);
-	let regionsLoading = $state(false);
+	/** A status line for region problems; outside the (on phones folded) layer controls. */
 	let regionsNote = $state<string | null>(null);
 	/** The region panel's code (charts, statistics) loads with the first region, not the page. */
 	let RegionPanel = $state.raw<typeof import('#lib/panel/RegionPanel.svelte').default | null>(null);
@@ -80,8 +80,11 @@
 		regionIndex && regionId ? (regionIndex.rows.find((r) => r.id === regionId) ?? null) : null
 	);
 	const hasPanel = $derived(!!at || !!regionId);
+	/** Outlines are fetched for the switch, or for the selected region's outline. */
+	const wantOutlines = $derived(regionsOn || (!!regionId && outlinesOk));
 	const regionsProp = $derived({
-		boundaries,
+		// the index comes first: the label points are built from its rows when the source is added
+		boundariesPath: wantOutlines && regionIndex ? (manifest?.admin1?.boundaries ?? null) : null,
 		rows: regionIndex?.rows ?? [],
 		show: regionsOn,
 		selected: regionId
@@ -221,68 +224,77 @@
 		regionError = null;
 	}
 
-	/** Loads the index and, for the map, the outlines; the first use of the layer pays for them. */
-	async function loadRegionLayer() {
-		if (!ds || regionsLoading || (regionIndex && boundaries)) return;
-		regionsLoading = true;
-		regionsNote = null;
+	const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
+	const noSuchRegion = (id: string) => `There is no state or province “${id}” in this dataset.`;
+
+	/** The region index (~130 kB gzipped), loaded on first use. Failures are reported, not hidden. */
+	async function ensureIndex(): Promise<Admin1Index | null> {
+		if (regionIndex) return regionIndex;
+		if (!ds) return null;
+		indexLoading = true;
 		try {
-			const [index, outlines] = await Promise.all([ds.admin1Index(), ds.admin1Boundaries()]);
-			regionIndex = index;
-			boundaries = outlines;
+			regionIndex = await ds.admin1Index();
+			return regionIndex;
 		} catch (e) {
-			regionsOn = false;
-			regionsNote = `The state and province borders could not be loaded: ${e instanceof Error ? e.message : String(e)}`;
+			regionsNote = `The state and province data could not be loaded: ${message(e)}`;
+			return null;
 		} finally {
-			regionsLoading = false;
+			indexLoading = false;
 		}
 	}
 
-	function setRegionsOn(on: boolean) {
+	async function setRegionsOn(on: boolean) {
 		regionsOn = on;
-		if (on) loadRegionLayer();
-		else regionsNote = null;
+		if (!on) return;
+		regionsNote = null;
+		if (!(await ensureIndex())) regionsOn = false;
 	}
 
 	let regionSeq = 0;
 	/**
 	 * Selects a state or province: its panel opens at once from the index row, and the
-	 * country file with the statistics follows. `fly` zooms to it (search, deep link).
+	 * country file with the statistics follows. `fly` zooms to it (search, deep link). The
+	 * borders switch is left as the user set it: the region draws only its own outline.
 	 */
 	async function selectRegion(id: string, opts: { fly: boolean }) {
 		if (!ds) return;
 		const seq = ++regionSeq;
+		const index = await ensureIndex();
+		if (seq !== regionSeq || !index) return;
+		const row = index.rows.find((r) => r.id === id);
+		if (!row) {
+			// a stale or mistyped link: say so rather than leave a plain map
+			regionId = null;
+			regionsNote = noSuchRegion(id);
+			return;
+		}
 		try {
-			const index = regionIndex ?? (await ds.admin1Index());
-			if (seq !== regionSeq) return;
-			regionIndex = index;
-			const row = index.rows.find((r) => r.id === id);
-			if (!row) {
-				// a stale or mistyped link: say nothing is selected rather than show an empty panel
-				regionId = null;
-				regionsNote = `There is no state or province “${id}” in this dataset.`;
-				return;
-			}
-			at = null;
-			label = null;
-			lookup = null;
-			lookupError = null;
-			import('#lib/panel/RegionPanel.svelte').then((m) => (RegionPanel = m.default));
-			regionId = id;
-			regionCountry = null;
-			regionError = null;
-			regionsNote = null;
-			if (!regionsOn) setRegionsOn(true);
-			else loadRegionLayer();
-			if (opts.fly) mapView?.flyTo(row.lon, row.lat, 4);
-			controlsOpen = false;
+			RegionPanel ??= (await import('#lib/panel/RegionPanel.svelte')).default;
+		} catch {
+			// e.g. a stale chunk after a new deploy: nothing is selected, say so
+			if (seq === regionSeq) regionsNote = 'The region panel could not be loaded. Reload the page.';
+			return;
+		}
+		if (seq !== regionSeq) return;
+		at = null;
+		label = null;
+		lookup = null;
+		lookupError = null;
+		regionId = id;
+		regionCountry = null;
+		regionError = null;
+		regionsNote = null;
+		if (opts.fly) mapView?.flyTo(row.lon, row.lat, 4);
+		controlsOpen = false;
+		try {
 			const country = await ds.admin1Country(row.country);
 			if (seq !== regionSeq) return;
 			regionCountry = country;
-			const detail = country.regions.find((r) => r.id === id);
-			if (opts.fly && detail?.bbox) mapView?.fitBounds(detail.bbox);
+			const bbox = country.regions.find((r) => r.id === id)?.bbox;
+			// east may exceed 180 for a region across the antimeridian (Alaska): used as it is
+			if (opts.fly && bbox) mapView?.fitBounds(bbox);
 		} catch (e) {
-			if (seq === regionSeq) regionError = e instanceof Error ? e.message : String(e);
+			if (seq === regionSeq) regionError = message(e);
 		}
 	}
 
@@ -342,6 +354,10 @@
 				ready = true;
 				prefetchPlaces(source);
 				if (source.hasAdmin1 && url.regions) setRegionsOn(true);
+				if (source.hasAdmin1 && url.regionRejected) regionsNote = noSuchRegion(url.regionRejected);
+				outlinesOk = allowsPrefetch(
+					(navigator as Navigator & { connection?: ConnectionLike }).connection
+				);
 				// a region link works on reload; a shared map view wins over zooming to the region
 				if (source.hasAdmin1 && url.region) selectRegion(url.region, { fly: !url.view });
 				if (url.at) {
@@ -384,7 +400,9 @@
 	onhashchange={() => {
 		// someone edited the address bar: follow a region link, or close the panel when it went
 		const id = parseRegionHash(window.location.hash);
+		const bad = rejectedRegionHash(window.location.hash);
 		if (id && id !== regionId) selectRegion(id, { fly: true });
+		else if (bad) regionsNote = noSuchRegion(bad);
 		else if (!id && regionId) dropRegion();
 	}}
 />
@@ -413,6 +431,13 @@
 			onviewchange={(v) => (view = v)}
 			regions={regionsProp}
 			onregionselect={(id) => selectRegion(id, { fly: false })}
+			onregionsstatus={(status, detail) => {
+				outlineStatus = status;
+				if (status === 'error') {
+					regionsNote = `The state and province borders could not be loaded${detail ? `: ${detail}` : ''}.`;
+					regionsOn = false;
+				}
+			}}
 		/>
 	{/if}
 
@@ -568,14 +593,11 @@
 						</label>
 						{#if regionsOn}
 							<p class="level-note" data-testid="regions-hint" aria-live="polite">
-								{regionsLoading
+								{indexLoading || outlineStatus === 'loading'
 									? 'Loading the borders…'
 									: 'Click a state or province for its details.'}
 							</p>
 						{/if}
-					{/if}
-					{#if regionsNote}
-						<p class="level-note" role="status" data-testid="regions-note">{regionsNote}</p>
 					{/if}
 					{#if levelNote}
 						<p class="level-note" data-testid="level-note">
@@ -586,6 +608,18 @@
 				</div>
 			{/if}
 		</div>
+		{#if regionsNote}
+			<p class="notice" role="status" data-testid="regions-note">
+				<span>{regionsNote}</span>
+				<button
+					type="button"
+					aria-label="Dismiss this message"
+					onclick={() => (regionsNote = null)}
+				>
+					×
+				</button>
+			</p>
+		{/if}
 		{#if fixture}
 			<p class="fixture" role="note">Fixture data: the values are fake, for development only.</p>
 		{/if}
@@ -797,6 +831,38 @@
 		height: 18px;
 		margin: 0;
 		accent-color: var(--accent);
+	}
+	.notice {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+		margin: 8px 0 0;
+		padding: 8px 10px;
+		font-size: 0.85rem;
+		line-height: 1.35;
+		color: var(--text);
+		background: var(--surface);
+		border-left: 4px solid var(--warn);
+		border-radius: 8px;
+		box-shadow: var(--shadow);
+	}
+	.notice span {
+		flex: 1;
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+	.notice button {
+		flex: none;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		font-size: 1.2rem;
+		line-height: 1;
+		color: var(--muted);
+		background: transparent;
+		border: 0;
+		border-radius: 6px;
+		cursor: pointer;
 	}
 	.fixture {
 		margin: 8px 0 0;

@@ -113,6 +113,18 @@ describe('admin1 index', () => {
 		expect(rowsById(idx.rows).get('CNM')?.num).toBe(1);
 	});
 
+	it('reads type, name_local and trend_q when the index has them', () => {
+		const idx = parseAdmin1Index({
+			fields: ['id', 'name', 'name_local', 'type', 'country', 'lon', 'lat', 'trend_q'],
+			rows: [['DE-BY', 'Bavaria', 'Bayern', 'State', 'DEU', 11.3, 48.9, 0.02]]
+		});
+		expect(idx.rows[0]).toMatchObject({
+			name_local: 'Bayern',
+			type: 'State',
+			trend_q: 0.02
+		});
+	});
+
 	it('copes with missing optional fields (older or leaner exports)', () => {
 		const idx = parseAdmin1Index({
 			fields: ['id', 'name', 'country', 'lon', 'lat'],
@@ -197,6 +209,7 @@ const country = {
 						change_pop: -12,
 						trend: -2.3,
 						trend_p: 0.012,
+						trend_q: 0.04,
 						series: [55, null, 12]
 					}
 				}
@@ -228,6 +241,7 @@ describe('admin1 country file', () => {
 		expect(r.name_local).toBe('Bayern');
 		expect(r.bbox).toEqual([8.98, 47.27, 13.84, 50.56]);
 		expect(r.stats.calibrated.christmas_day.series).toEqual([55, null, 12]);
+		expect(r.stats.calibrated.christmas_day.trend_q).toBe(0.04);
 		expect(r.proj?.agree).toEqual([true, true, false]);
 	});
 

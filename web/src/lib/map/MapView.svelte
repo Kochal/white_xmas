@@ -1,11 +1,10 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import type { BoundaryCollection, RegionRow } from '#lib/data/admin1.ts';
+	import type { RegionRow } from '#lib/data/admin1.ts';
 	import type { Layer } from '#lib/data/manifest.ts';
 	import type { MapView as View } from '#lib/url-state.ts';
 	import { climateLayerBefore, slimBasemap, withClimateLayer } from './basemap.ts';
 	import {
-		BASEMAP_STATE_LAYERS,
 		DARK,
 		FILL_LAYER,
 		LABELS_SOURCE,
@@ -14,13 +13,17 @@
 		SELECTED_FILL,
 		SELECTED_LINE,
 		labelCollection,
+		regionBounds,
 		regionLayers,
+		stateLayerIds,
+		type StyleLayerInfo,
 		toggledLayerIds
 	} from './regions-layer.ts';
 
 	/** The states-and-provinces layer (contract v1.6): outlines, rows for the labels, toggle. */
 	export interface RegionsProp {
-		boundaries: BoundaryCollection | null;
+		/** Outlines file, relative to the data base; the map's worker fetches and parses it. null: not wanted yet. */
+		boundariesPath: string | null;
 		rows: RegionRow[];
 		/** Borders, labels and hover on; the selected outline shows either way. */
 		show: boolean;
@@ -39,6 +42,8 @@
 		regions?: RegionsProp;
 		/** A click (or Enter at the centre) on a region while the layer is shown. */
 		onregionselect?: (id: string) => void;
+		/** Progress of the outlines: 'loading' once requested, 'ready' when drawn, 'error' if they failed. */
+		onregionsstatus?: (status: 'loading' | 'ready' | 'error', detail?: string) => void;
 	}
 
 	let {
@@ -50,7 +55,8 @@
 		onselect,
 		onviewchange,
 		regions,
-		onregionselect
+		onregionselect,
+		onregionsstatus
 	}: Props = $props();
 
 	const STYLE_LIGHT = 'https://tiles.openfreemap.org/styles/positron';
@@ -114,15 +120,14 @@
 	 * visibility, outline and the basemap's own state layers in step. Safe to call again.
 	 */
 	function applyRegions(m: import('maplibre-gl').Map, r: RegionsProp | undefined) {
-		if (!r || !r.boundaries) return;
+		if (!r || !r.boundariesPath) return;
 		const style = m.getStyle();
 		const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
 		const specs = regionLayers(dark ? DARK : LIGHT, !!style.glyphs);
 		if (!m.getSource(REGIONS_SOURCE)) {
-			m.addSource(REGIONS_SOURCE, {
-				type: 'geojson',
-				data: r.boundaries as unknown as import('maplibre-gl').GeoJSONSourceSpecification['data']
-			});
+			// a URL, not an object: MapLibre's worker fetches and parses the 5 MB file, not this thread
+			onregionsstatus?.('loading');
+			m.addSource(REGIONS_SOURCE, { type: 'geojson', data: absolute(r.boundariesPath) });
 			m.addSource(LABELS_SOURCE, {
 				type: 'geojson',
 				data: labelCollection(
@@ -145,8 +150,8 @@
 		] as import('maplibre-gl').FilterSpecification;
 		for (const id of [SELECTED_FILL, SELECTED_LINE]) m.setFilter(id, filter);
 		// our outlines replace the basemap's own state borders and names
-		for (const id of BASEMAP_STATE_LAYERS)
-			if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', r.show ? 'none' : 'visible');
+		for (const id of stateLayerIds(style.layers as StyleLayerInfo[]))
+			m.setLayoutProperty(id, 'visibility', r.show ? 'none' : 'visible');
 		if (!r.show) clearHover(m);
 	}
 
@@ -279,7 +284,14 @@
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
 				});
+				m.on('sourcedata', (e) => {
+					if (e.sourceId === REGIONS_SOURCE && e.isSourceLoaded) onregionsstatus?.('ready');
+				});
 				m.on('error', (e) => {
+					if ((e as { sourceId?: string }).sourceId === REGIONS_SOURCE) {
+						onregionsstatus?.('error', e.error?.message);
+						return;
+					}
 					if (!basemapLoaded && !(e as { sourceId?: string }).sourceId) {
 						basemapDown = true;
 						clearTimeout(styleTimer);
@@ -322,7 +334,7 @@
 	$effect(() => {
 		const r = regions;
 		// read the fields here so the effect re-runs when they change
-		void [r?.boundaries, r?.show, r?.selected, r?.rows];
+		void [r?.boundariesPath, r?.show, r?.selected, r?.rows];
 		if (map && styleReady) applyRegions(map, r);
 	});
 
@@ -340,22 +352,17 @@
 	});
 
 	/** Zoom to a region's bounding box (west, south, east, north), clear of the open panel. */
-	export function fitBounds(bbox: [number, number, number, number]) {
-		if (!map) return;
+	export function fitBounds(bbox: readonly number[]) {
+		const bounds = regionBounds(bbox);
+		if (!map || !bounds) return;
 		const wide = window.innerWidth > 720;
-		map.fitBounds(
-			[
-				[bbox[0], bbox[1]],
-				[bbox[2], bbox[3]]
-			],
-			{
-				padding: wide
-					? { top: 40, bottom: 40, left: 360, right: 420 }
-					: { top: 110, bottom: Math.round(window.innerHeight * 0.45), left: 24, right: 24 },
-				maxZoom: 8,
-				essential: true
-			}
-		);
+		map.fitBounds(bounds, {
+			padding: wide
+				? { top: 40, bottom: 40, left: 360, right: 420 }
+				: { top: 110, bottom: Math.round(window.innerHeight * 0.45), left: 24, right: 24 },
+			maxZoom: 8,
+			essential: true
+		});
 	}
 
 	/** Fly to a coordinate (used by search). */

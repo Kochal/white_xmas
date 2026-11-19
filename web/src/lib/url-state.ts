@@ -22,10 +22,15 @@ export interface UrlState {
 	regions?: boolean;
 	/** Selected region id, from the URL hash. */
 	region?: string;
+	/** A `#/region/<x>` link whose id is not a valid id: kept (shortened) to say so. */
+	regionRejected?: string;
 }
 
-/** Region ids are ISO 3166-2 codes or Natural Earth fallbacks: letters, digits and `-`. */
-const REGION_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,23}$/;
+/**
+ * Region ids are ISO 3166-2 codes or Natural Earth fallbacks: letters, digits and `-`. The
+ * longest real one (`SVN-JUGOVZHODNA-SLOVENIJA`) has 25 characters; the limit leaves room.
+ */
+export const REGION_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,47}$/;
 
 const KINDS: LayerKind[] = ['probability', 'change', 'trend', 'projection', 'projection_change'];
 
@@ -45,6 +50,19 @@ export function parseRegionHash(hash: string): string | undefined {
 		return undefined;
 	}
 	return REGION_ID.test(id) ? id : undefined;
+}
+
+/** The text of a `#/region/<x>` hash that parseRegionHash refused, shortened for display. */
+export function rejectedRegionHash(hash: string): string | undefined {
+	const m = /^#\/region\/(.+)$/.exec(hash);
+	if (!m || parseRegionHash(hash)) return undefined;
+	let raw = m[1];
+	try {
+		raw = decodeURIComponent(raw);
+	} catch {
+		/* keep the raw text */
+	}
+	return raw.replace(/[^\p{L}\p{N} _./-]/gu, '').slice(0, 60) || undefined;
 }
 
 export const regionHash = (id: string | undefined): string =>
@@ -75,11 +93,14 @@ export function parseUrlState(params: URLSearchParams, hash = ''): UrlState {
 	if (params.get('regions') === '1') state.regions = true;
 	const region = parseRegionHash(hash);
 	if (region) {
-		// a region and a point are never selected together; the region link wins
+		// a region and a point are never selected together; the region link wins. The borders
+		// layer stays as the link says (?regions=1): a region draws only its own outline.
 		state.region = region;
-		state.regions = true;
 		delete state.at;
 		delete state.place;
+	} else {
+		const rejected = rejectedRegionHash(hash);
+		if (rejected) state.regionRejected = rejected;
 	}
 	return state;
 }

@@ -14,8 +14,34 @@ export const SELECTED_FILL = 'wx-regions-selected-fill';
 export const SELECTED_LINE = 'wx-regions-selected-line';
 export const LABEL_PREFIX = 'wx-regions-label-';
 
-/** OpenFreeMap's own state borders and names; hidden while this layer is on, to avoid doubles. */
-export const BASEMAP_STATE_LAYERS = ['boundary_3', 'label_state'];
+/** The parts of a basemap style layer that tell a state border or name from the rest. */
+export interface StyleLayerInfo {
+	id: string;
+	type: string;
+	'source-layer'?: string;
+	filter?: unknown;
+}
+
+/**
+ * OpenFreeMap's own state borders and state names. They are hidden while this layer is on, to
+ * avoid every border and name twice. The light and dark styles name them differently
+ * (`boundary_3` / `label_state` and `boundary_state` / `place_state`), so layers are found by
+ * what they draw: lines of the `boundary` source layer filtered to admin level 3 or 4, and
+ * symbols of the `place` source layer filtered to class "state". Country borders (level 2)
+ * and country, city and town names are not matched.
+ */
+export function stateLayerIds(layers: StyleLayerInfo[]): string[] {
+	return layers
+		.filter((l) => {
+			const filter = JSON.stringify(l.filter ?? null);
+			if (l.type === 'line' && l['source-layer'] === 'boundary')
+				return /\["get","admin_level"\],[34]\]/.test(filter);
+			if (l.type === 'symbol' && l['source-layer'] === 'place')
+				return /\["==",\["get","class"\],"state"\]/.test(filter);
+			return false;
+		})
+		.map((l) => l.id);
+}
 
 /** Zoom from which a region of a given area is labelled: big ones early, small ones late. */
 export const LABEL_MIN_ZOOM = [3.2, 4.4, 5.6, 6.8] as const;
@@ -144,4 +170,21 @@ export function regionLayers(colors: RegionColors, glyphs: boolean): LayerSpecif
 /** The layers that follow the "show borders" toggle (the selected outline stays). */
 export function toggledLayerIds(layers: { id: string }[]): string[] {
 	return layers.map((l) => l.id).filter((id) => id !== SELECTED_FILL && id !== SELECTED_LINE);
+}
+
+/**
+ * A region's bounding box (west, south, east, north) as MapLibre bounds. A region across the
+ * antimeridian has east > 180 (Alaska 172.48 to 230.01): MapLibre's fitBounds takes that as it
+ * is, so it must not be normalised back into -180..180. Returns null for a malformed box.
+ */
+export function regionBounds(
+	bbox: readonly number[] | null | undefined
+): [[number, number], [number, number]] | null {
+	if (!bbox || bbox.length !== 4 || bbox.some((v) => !Number.isFinite(v))) return null;
+	const [w, s, e, n] = bbox;
+	if (e <= w || n < s || s < -90 || n > 90) return null;
+	return [
+		[w, s],
+		[e, n]
+	];
 }
