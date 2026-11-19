@@ -121,11 +121,15 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
     if st.exists():
         sres = json.loads(st.read_text())
         cal = sres["calibration"]
+        from .stations import calibration_line
+
         report["stations"] = {
             "n_stations": len(sres["stations"]),
             "n_calibration": cal["n_calibration"],
             "best_cm": cal["best_cm"],
             "stats": {int(k): v for k, v in cal["stats"].items()},
+            "summary": calibration_line(cal, cfg.threshold_cm),
+            "report": str(st.parent / "snow_variable_check.html"),
         }
 
     if legacy_tif and legacy_tif.exists():
@@ -213,9 +217,11 @@ def _html(r: dict, defs: list[str]) -> str:
             for k, v in sorted(s_["stats"].items())
         )
         stations = (
-            f"<h2>Station check</h2><p>{s_['n_stations']} GHCN-Daily stations, "
-            f"{s_['n_calibration']} after quality filters (see snow_variable_check.html). Best "
-            f"whole-cm threshold: {s_['best_cm']} cm.</p><table><tr><th>ERA5-Land rule</th>"
+            f"<h2>Station check</h2><p>{s_['n_stations']:,} GHCN-Daily stations examined, "
+            f"{s_['n_calibration']:,} used after the quality rules. ERA5-Land thresholds: "
+            f"{html.escape(s_.get('summary', ''))}. Full report: "
+            f"<code>{html.escape(s_.get('report', 'snow_variable_check.html'))}</code>.</p>"
+            f"<table><tr><th>ERA5-Land rule</th>"
             f"<th>mean bias (pp)</th><th>MAE (pp)</th><th>agreement (%)</th></tr>{srows}</table>"
         )
     leg = ""

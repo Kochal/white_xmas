@@ -186,6 +186,17 @@ def calibrate(rows: list[dict], thresholds: list[int], always_white_pct: float =
     }
 
 
+def calibration_line(cal: dict, shipped_cm: int) -> str:
+    """'smallest mean bias: X cm; smallest MAE: Y cm; shipped: Z cm' from a calibration dict."""
+    stats = {int(k): v for k, v in cal["stats"].items()}
+    by_mae = min(stats, key=lambda t: (stats[t]["mae_pp"], t))
+    b, m = stats[cal["best_cm"]], stats[by_mae]
+    return (
+        f"smallest mean bias: {cal['best_cm']} cm ({b['bias_pp']:+.1f} pp); "
+        f"smallest MAE: {by_mae} cm ({m['mae_pp']:.1f} pp); shipped: {shipped_cm} cm"
+    )
+
+
 def run(
     cfg: Config, paths: DataPaths, out_dir: Path | None = None, mode: str | None = None
 ) -> dict:

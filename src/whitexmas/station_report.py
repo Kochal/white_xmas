@@ -609,7 +609,9 @@ at 1 cm and {_f(any3.get("bias_pp", {}).get(t), 1, True)} pp at {t} cm (MAE
 {_f(any3.get("mae_pp", {}).get(t))} pp). Context only: the default definition is 25 December.</p>
 
 <h2>The earlier hand-picked list under these rules</h2>
-<p>Of the {d17.get("n", 0)} D-17 stations, {d17.get("n_used", 0)} pass the new rules; their mean
+<p>Of the {d17.get("n", 0)} listed stations (30 used by D-17), {
+        d17.get("n_used", 0)
+    } pass the new rules; their mean
 bias at {t} cm is {_f(d17s.get("bias_pp", {}).get(t), 1, True)} pp (MAE
 {_f(d17s.get("mae_pp", {}).get(t))} pp). Not used now:</p><ul>{d17_txt}</ul>
 

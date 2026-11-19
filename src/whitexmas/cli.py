@@ -165,11 +165,13 @@ def stations(
     if not cal:
         typer.echo("no station passed the rules")
         return
-    st = cal["stats"][cal["best_cm"]]
+    from .stations import calibration_line
+
+    out = paths.products / ("stations" if res.get("mode") == "auto" else "sanity")
     typer.echo(
-        f"{len(res['stations'])} stations examined ({cal['n_calibration']} for calibration); "
-        f"best whole-cm threshold: {cal['best_cm']} cm "
-        f"(bias {st['bias_pp']:+.1f} pp, MAE {st['mae_pp']:.1f} pp)"
+        f"{len(res['stations'])} stations examined, {cal['n_calibration']} used; "
+        f"{calibration_line(cal, cfg.threshold_cm)}\n"
+        f"report: {out / 'snow_variable_check.html'}"
     )
 
 
