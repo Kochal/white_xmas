@@ -38,3 +38,25 @@ def test_box_mean_aggregates_fine_cells_to_nearest_model_cell():
     assert mean[0, 1] == pytest.approx(1.0, abs=0.01)  # 180-360 E = -180-0
     assert np.isnan(mean[1]).all() and (cover[1] == 0).all()
     assert cover[0, 0] == pytest.approx(900 / 901, abs=1e-3)
+
+
+def test_selection_rule_drops_gross_errors(tmp_path):
+    import json
+
+    from whitexmas.projections.validation import dropped_models, select_models
+
+    (tmp_path / "skill.json").write_text(json.dumps({"models": [
+        {"model": "Good", "corr": 0.95, "mae_transition_pp": 15.0},
+        {"model": "Pattern", "corr": 0.6, "mae_transition_pp": 20.0},
+        {"model": "Melt", "corr": 0.9, "mae_transition_pp": 20.0},
+    ]}))  # fmt: skip
+    (tmp_path / "snow_amount.json").write_text(json.dumps({"models": [
+        {"model": "Good", "ratio_to_era5": 0.6},
+        {"model": "Pattern", "ratio_to_era5": 0.5},
+        {"model": "Melt", "ratio_to_era5": 10.0},
+    ]}))  # fmt: skip
+    sel = select_models(tmp_path)
+    assert sel["kept"] == ["Good"]
+    assert set(sel["dropped"]) == {"Pattern", "Melt"}
+    assert "snow amount" in sel["dropped"]["Melt"]
+    assert dropped_models(tmp_path) == ["Melt", "Pattern"]

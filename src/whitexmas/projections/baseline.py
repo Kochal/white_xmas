@@ -84,9 +84,10 @@ def era5_window_frequency(
     paths: DataPaths, definition: str, start: int, end: int, threshold_cm: float = 1.0
 ) -> np.ndarray | None:
     """ERA5-Land white-Christmas frequency (0-1) for ``start..end`` from the pipeline's snow
-    cube, for validating the models. None when the cube does not exist yet."""
+    cube, for validating the models. Without the cube it reads the raw downloads directly
+    (when at least 80 % of the years are there). None when neither is available."""
     if not paths.cube.exists():
-        return None
+        return _frequency_from_raw(paths, definition, start, end, threshold_cm)
     import zarr
 
     from ..definitions import white
@@ -107,3 +108,38 @@ def era5_window_frequency(
             valid = np.isfinite(w).sum(axis=0)
             out[j0:j1] = np.where(valid > 0, np.nansum(w, axis=0) / np.maximum(valid, 1), np.nan)
     return out
+
+
+def _frequency_from_raw(
+    paths: DataPaths, definition: str, start: int, end: int, threshold_cm: float
+) -> np.ndarray | None:
+    import netCDF4
+
+    from ..definitions import white
+    from ..ingest import to_cm
+
+    years = list(range(start, end + 1))
+    files = {y: paths.snow_raw / f"sd_daymean_{y}_dec24-26.nc" for y in years}
+    have = [y for y in years if files[y].exists()]
+    if len(have) < 0.8 * len(years):
+        return None
+    if len(have) < len(years):
+        log.warning("ERA5-Land raw files: %d of %d years for %d-%d", len(have), len(years),
+                    start, end)  # fmt: skip
+    k = np.zeros((NY, NX), dtype="float32")
+    n = np.zeros((NY, NX), dtype="int16")
+    for y in have:
+        with netCDF4.Dataset(files[y]) as ds:
+            lat = np.asarray(ds["latitude"][:])
+            lon = np.asarray(ds["longitude"][:])
+            sde = np.ma.filled(ds["sde"][:].astype("float64"), np.nan)  # (3, lat, lon) metres
+        if lat[0] < lat[-1]:
+            sde = sde[:, ::-1]
+        order = np.argsort(((lon + 180.0) % 360.0) - 180.0)
+        cm = to_cm(sde[:, :, order])[None]  # (1 year, 3 days, NY, NX)
+        w = white(cm, definition, threshold_cm)[0]
+        ok = np.isfinite(w)
+        k[ok] += w[ok]
+        n[ok] += 1
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(n > 0, k / n, np.nan).astype("float32")

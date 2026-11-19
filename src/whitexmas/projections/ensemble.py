@@ -90,7 +90,12 @@ def build_ensemble(
     files = sorted(pp.models.glob("*.nc"))
     if models:
         files = [f for f in files if f.stem in models]
-    files = [f for f in files if f.stem not in s.exclude]
+    from .validation import dropped_models
+
+    exclude = set(s.exclude) or set(dropped_models(pp.validation))
+    if exclude:
+        log.info("excluding models: %s", ", ".join(sorted(exclude)))
+    files = [f for f in files if f.stem not in exclude]
     if not files:
         raise FileNotFoundError(f"no per-model results in {pp.models}")
     names = [f.stem for f in files]

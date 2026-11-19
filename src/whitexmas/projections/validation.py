@@ -73,13 +73,20 @@ def brier(p_pct: np.ndarray, f: np.ndarray, w: np.ndarray) -> float:
     return float(np.average(bs, weights=w[ok]))
 
 
-def validate(paths: DataPaths, s: ProjSettings, models: list[str] | None = None) -> dict:
+def validate(
+    paths: DataPaths,
+    s: ProjSettings,
+    models: list[str] | None = None,
+    period: tuple[int, int] | None = None,
+) -> dict:
+    """Bias of each model's white-Christmas frequency against ERA5-Land over ``period``
+    (default: the model baseline, 1995-2014)."""
     import xarray as xr
 
     pp = ProjPaths.from_data(paths)
     pp.validation.mkdir(parents=True, exist_ok=True)
     d = "christmas_day"
-    b0, b1 = s.baseline
+    b0, b1 = period or s.baseline
     era = era5_window_frequency(paths, d, b0, b1)
     era_src = f"ERA5-Land {b0}-{b1}"
     if era is None:
@@ -91,14 +98,21 @@ def validate(paths: DataPaths, s: ProjSettings, models: list[str] | None = None)
         glacier = load_baseline(paths, d, s.obs_window).glacier
     era = np.where(glacier, np.nan, era)
     rows = []
+    hs = ProjSettings(**{**s.__dict__, "definitions": (d,)})
     for f in sorted(pp.models.glob("*.nc")):
         if models and f.stem not in models:
             continue
         with xr.open_dataset(f) as ds:
-            k = ds["k"].sel(window="baseline", definition=d).values
-            n = ds["n"].sel(window="baseline", definition=d).values
             land = ds["land"].values
             lat, lon = ds["lat"].values, ds["lon"].values
+            if (b0, b1) == tuple(s.baseline):
+                k = ds["k"].sel(window="baseline", definition=d).values
+                n = ds["n"].sel(window="baseline", definition=d).values
+            else:
+                k, n = None, None
+        if k is None:
+            k, n, *_ = counts_for_window(pp.cmip6, f.stem, "historical", b0, b1, hs)
+            k, n = k[0], n[0]
         with np.errstate(invalid="ignore", divide="ignore"):
             mf = np.where(land & (n > 0), k / n, np.nan)
         ef, cover = box_mean(era, lat, lon)
@@ -113,7 +127,7 @@ def validate(paths: DataPaths, s: ProjSettings, models: list[str] | None = None)
             },
             coords={"lat": lat, "lon": lon},
             attrs={"reference": era_src},
-        ).to_netcdf(pp.validation / f"bias_{f.stem}.nc")
+        ).to_netcdf(pp.validation / f"bias_{f.stem}_{b0}_{b1}.nc")
         log.info("bias %s: %s", f.stem, sc)
     out = {
         "reference": era_src,
@@ -122,8 +136,10 @@ def validate(paths: DataPaths, s: ProjSettings, models: list[str] | None = None)
         "pool_days": s.pool_days,
         "models": rows,
     }
-    _write_table(pp.validation / "skill", rows)
-    (pp.validation / "skill.json").write_text(json.dumps(out, indent=1))
+    stem = "skill" if (b0, b1) == tuple(s.baseline) else f"skill_{b0}_{b1}"
+    out["period"] = [b0, b1]
+    _write_table(pp.validation / stem, rows)
+    (pp.validation / f"{stem}.json").write_text(json.dumps(out, indent=1))
     return out
 
 
@@ -216,6 +232,115 @@ def reliability(p_pct: np.ndarray, f: np.ndarray, w: np.ndarray, bins: int = 10)
             }
         )
     return out
+
+
+def snow_amount(
+    paths: DataPaths,
+    s: ProjSettings,
+    models: list[str] | None = None,
+    period: tuple[int, int] = (1961, 1990),
+    band: tuple[float, float] = (40.0, 60.0),
+) -> dict:
+    """Gross-error check on snow *amount*: median Christmas-Day SWE on snowy days, land
+    40-60 °N, per model, against ERA5-Land snow depth converted at 250 kg m-3.
+
+    A frequency check cannot see a model whose snowpack never melts (it is "white" either
+    way), but such a model cannot lose its Christmas snow in a warmer climate either."""
+    import netCDF4
+
+    pp = ProjPaths.from_data(paths)
+    lat_e = 90.0 - 0.1 * np.arange(NY)
+    rows_e = (lat_e >= band[0]) & (lat_e <= band[1])
+    vals = []
+    for y in range(period[0], period[1] + 1):
+        f = paths.snow_raw / f"sd_daymean_{y}_dec24-26.nc"
+        if not f.exists():
+            continue
+        with netCDF4.Dataset(f) as ds:
+            lat = np.asarray(ds["latitude"][:])
+            sde = np.ma.filled(ds["sde"][1].astype("float64"), np.nan)  # Dec 25, metres
+        if lat[0] < lat[-1]:
+            sde = sde[::-1]
+        x = sde[rows_e] * 100.0 * 2.5  # cm -> kg m-2 at 250 kg m-3
+        vals.append(x[np.isfinite(x) & (x >= s.threshold_kg_m2)])
+    era = float(np.median(np.concatenate(vals))) if vals else None
+    rows = []
+    plan = load_plan(pp.cmip6)["models"]
+    for m in models or sorted(plan):
+        f = load_window_safe(pp, m, period)
+        if f is None:
+            continue
+        lat_m = np.asarray(f.lat)
+        sel = [i for i, t in enumerate(f.times) if t.month == 12 and t.day == 25]
+        x = f.values[sel][:, (lat_m >= band[0]) & (lat_m <= band[1])]
+        x = x[np.isfinite(x) & (x >= s.threshold_kg_m2)]
+        med = float(np.median(x)) if x.size else None
+        rows.append(
+            {
+                "model": m,
+                "median_swe_kg_m2": None if med is None else round(med, 1),
+                "ratio_to_era5": None if (med is None or not era) else round(med / era, 2),
+            }
+        )
+    out = {"period": list(period), "band": list(band), "era5_median_swe_kg_m2": era, "models": rows}
+    pp.validation.mkdir(parents=True, exist_ok=True)
+    (pp.validation / "snow_amount.json").write_text(json.dumps(out, indent=1))
+    return out
+
+
+def load_window_safe(pp: ProjPaths, model: str, period: tuple[int, int]):
+    from .cmip6 import load_window
+
+    try:
+        return load_window(pp.cmip6, model, "historical", *period)
+    except FileNotFoundError:
+        return None
+
+
+# Selection rule (docs/projections.md, "Validation and model selection"): drop a model with a
+# gross error in snow amount or in the pattern of white-Christmas frequency.
+AMOUNT_RATIO_RANGE = (0.25, 4.0)  # median Christmas SWE relative to ERA5-Land
+MIN_CORR = 0.80
+MAX_MAE_TRANSITION_PP = 35.0
+
+
+def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
+    """Apply the selection rule to the saved scores; writes ``selection.json``."""
+    reasons: dict[str, list[str]] = {}
+    models: set[str] = set()
+    sk = validation_dir / skill_file
+    if sk.exists():
+        for r in json.loads(sk.read_text())["models"]:
+            models.add(r["model"])
+            if r.get("corr") is not None and r["corr"] < MIN_CORR:
+                reasons.setdefault(r["model"], []).append(f"pattern correlation {r['corr']}")
+            mae = r.get("mae_transition_pp")
+            if mae is not None and mae > MAX_MAE_TRANSITION_PP:
+                reasons.setdefault(r["model"], []).append(f"transition-cell error {mae} pp")
+    am = validation_dir / "snow_amount.json"
+    if am.exists():
+        for r in json.loads(am.read_text())["models"]:
+            models.add(r["model"])
+            q = r.get("ratio_to_era5")
+            if q is not None and not AMOUNT_RATIO_RANGE[0] <= q <= AMOUNT_RATIO_RANGE[1]:
+                reasons.setdefault(r["model"], []).append(f"snow amount {q}x ERA5-Land")
+    out = {
+        "rule": {
+            "amount_ratio_range": AMOUNT_RATIO_RANGE,
+            "min_corr": MIN_CORR,
+            "max_mae_transition_pp": MAX_MAE_TRANSITION_PP,
+            "skill_file": skill_file,
+        },
+        "kept": sorted(models - set(reasons)),
+        "dropped": {m: "; ".join(v) for m, v in sorted(reasons.items())},
+    }
+    (validation_dir / "selection.json").write_text(json.dumps(out, indent=1))
+    return out
+
+
+def dropped_models(validation_dir: Path) -> list[str]:
+    f = validation_dir / "selection.json"
+    return sorted(json.loads(f.read_text())["dropped"]) if f.exists() else []
 
 
 def _write_table(stem: Path, rows: list[dict]) -> None:

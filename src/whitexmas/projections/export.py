@@ -198,6 +198,7 @@ def _render_layer(
     out: str,
     maxzoom: int,
     quality: int,
+    lossless: bool,
 ) -> dict:
     import xarray as xr
 
@@ -208,20 +209,26 @@ def _render_layer(
     hatch = ~ds["agree"].sel(definition=d, gwl=g).values if var == "change" else None
     grid = LayerGrid.build(vals, cmap, ds["glacier"].values, hatch)
     meta = {"id": lid, "attribution": "CMIP6 models (ESGF) + ERA5-Land (Copernicus C3S)"}
-    return write_pmtiles(Path(out), grid, maxzoom=maxzoom, quality=quality, metadata=meta)
+    return write_pmtiles(
+        Path(out), grid, maxzoom=maxzoom, quality=quality, metadata=meta, lossless=lossless
+    )
 
 
 def export_projections(
     paths: DataPaths,
     web_out: Path,
-    maxzoom: int = 6,
-    quality: int = 90,
     cogs: bool = True,
     allow_placeholder: bool = False,
     definitions: tuple[str, ...] = ("christmas_day",),
 ) -> dict:
     import xarray as xr
 
+    from ..config import Config
+
+    ex = Config.load(None).export  # same tile settings as the historical layers
+    maxzoom = int(ex.get("tile_maxzoom", 6))
+    quality = int(ex.get("webp_quality", 50))
+    lossless = bool(ex.get("webp_lossless", True))
     pp = ProjPaths.from_data(paths)
     ds = xr.open_zarr(pp.ensemble)
     placeholder = bool(ds.attrs.get("placeholder"))
@@ -261,6 +268,7 @@ def export_projections(
                 str(web_out / "tiles" / f"{lid}.pmtiles"),
                 maxzoom,
                 quality,
+                lossless,
             ): lid
             for lid, d, g, var, cmap in jobs
         }

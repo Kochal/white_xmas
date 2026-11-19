@@ -96,6 +96,9 @@ def validate(
     model: Models = None,
     threshold: Threshold = 2.5,
     pool: Pool = 7,
+    period: Annotated[
+        str | None, typer.Option(help="ERA5-Land comparison years, e.g. 1961-1990")
+    ] = None,
     hindcast: Annotated[
         bool, typer.Option(help="Also run the 1961-1990 -> 1996-2025 hindcast")
     ] = True,
@@ -105,9 +108,19 @@ def validate(
     from . import validation
 
     paths, pp, s = _setup(verbose, threshold, pool, None)
-    res = validation.validate(paths, s, model)
+    per = tuple(int(x) for x in period.split("-")) if period else None
+    res = validation.validate(paths, s, model, per)
     for r in res["models"]:
         typer.echo(json.dumps(r))
+    amount = validation.snow_amount(paths, s, model, per or (1961, 1990))
+    typer.echo(f"snow amount (ERA5-Land median {amount['era5_median_swe_kg_m2']:.1f} kg m-2):")
+    for r in amount["models"]:
+        typer.echo(json.dumps(r))
+    stem = "skill" if per is None or per == tuple(s.baseline) else f"skill_{per[0]}_{per[1]}"
+    sel = validation.select_models(pp.validation, f"{stem}.json")
+    typer.echo(f"kept {len(sel['kept'])}: {', '.join(sel['kept'])}")
+    for m, why in sel["dropped"].items():
+        typer.echo(f"dropped {m}: {why}")
     if hindcast:
         try:
             hc = validation.hindcast(paths, s, model)
@@ -163,7 +176,9 @@ def run(
 ) -> None:
     """changes -> validate -> ensemble -> export."""
     changes(model=None, threshold=threshold, pool=pool, force=False, verbose=verbose)
-    validate(model=None, threshold=threshold, pool=pool, hindcast=True, verbose=verbose)
+    validate(
+        model=None, threshold=threshold, pool=pool, period=None, hindcast=True, verbose=verbose
+    )
     ensemble(
         model=None,
         exclude=exclude,
