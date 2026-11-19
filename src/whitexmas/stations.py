@@ -305,6 +305,27 @@ snow cover ≥ 50 % −4.1 pp, MAE 6.0, r 0.98; both need a new global download.
 """
 
 
+REGIONS = {"US": "North America", "CA": "North America", "JA": "Japan", "KS": "Korea",
+           "KN": "Korea"}  # fmt: skip
+
+
+def _scope(res: dict) -> str:
+    """Where the calibration was actually tested, from the stations it used."""
+    used = [r for r in res["stations"] if not r.get("exclude")]
+    if not used:
+        return "No station passed the filters."
+    regions = sorted({REGIONS.get(r["id"][:2], "Europe") for r in used})
+    top = max(used, key=lambda r: r["elev_m"])
+    lats = [r["lat"] for r in used]
+    return (
+        f"Calibrated on {len(used)} stations in {', '.join(regions)}, between "
+        f"{min(lats):.0f}° and {max(lats):.0f}° N and below {top['elev_m']:.0f} m "
+        f"({html.escape(top['name'])} is the highest). It is not tested for mountains, for "
+        "climates outside these regions, or for the Southern Hemisphere, where 25 December is "
+        "midsummer."
+    )
+
+
 def render_html(res: dict, thresholds: list[int]) -> str:
     cal = res["calibration"]
     st = cal["stats"]
@@ -368,10 +389,7 @@ Christmas Day <b>{s1.get("bias_pp", float("nan")):+.0f} pp</b> more often than s
 whole-centimetre threshold that matches the stations best is <b>{best} cm</b>: bias
 {st[best]["bias_pp"]:+.1f} pp, MAE {st[best]["mae_pp"]:.1f} pp, r {st[best]["r"]:.2f},
 white/green agreement in {st[best]["agree_pct"]:.0f} % of station-years. Leave-one-out picks
-{loo}.<br><br><b>Scope.</b> Tested in Northern Hemisphere mid- and high-latitude climates:
-lowland and Alpine Europe, Scandinavia, eastern and western North America, Hokkaido, the
-Sea-of-Japan coast and Korea, at stations below about 1000 m (Hohenpeissenberg 977 m is the
-highest). It is not tested for high mountains, the Arctic or the Southern Hemisphere.</div>
+{loo}.<br><br><b>Scope.</b> {_scope(res)}</div>
 
 <h2>Calibration across stations</h2>
 <table><tr><th>ERA5-Land rule</th><th>mean bias (pp)</th><th>MAE (pp)</th><th>r across stations</th>
