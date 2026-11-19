@@ -272,6 +272,17 @@ def main() -> int:
     except Exception as e:  # noqa: BLE001 - replicas are optional
         print("  DKRZ replica lookup failed:", e)
 
+    # one grid per model: the ssp245 grid (GFDL-CM4 publishes historical on gr1 and gr2)
+    grid_of = {}
+    for f in files.values():
+        if f["variable"] == "snw" and f["experiment"] == "ssp245":
+            grid_of.setdefault(f["model"], f["file"].split("_")[5])
+    files = {
+        k: f
+        for k, f in files.items()
+        if f["variable"] != "snw" or f["file"].split("_")[5] == grid_of.get(f["model"])
+    }
+
     # keep only the years we need
     keep = []
     for f in files.values():
