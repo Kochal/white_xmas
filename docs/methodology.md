@@ -67,22 +67,25 @@ We compare ERA5-Land with weather stations that measured snow depth on 25 Decemb
 from NOAA's Global Historical Climatology Network (GHCN-Daily). The check is part of the pipeline
 (`whitexmas stations`): it picks the stations itself, applies the same rules everywhere and writes
 a full report (`snow_variable_check.html`) and a table of every station it looked at
-(`stations_global.csv`).
+(`stations_global.csv`). Differences are given in **percentage points (pp)**: if ERA5-Land is
+white in 40 % of years and the station in 35 %, the difference is +5 pp.
 
 - **Observed:** a station has a white Christmas Day when its snow depth on 25 December is at least
-  1 cm. US stations report whole inches, so for them it is "at least 1 inch as rounded by the
-  observer", about 1.3 cm.
+  1 cm. US stations report whole inches, so for them it means a reported depth of at least 1 inch;
+  observers round, so that is in effect at least half an inch (about 1.3 cm).
 - **ERA5-Land:** the same grid cell the map uses for that location (the nearest land cell within
   two cells for a coastal station whose own cell is water), daily-mean snow depth on 25 December,
-  over exactly the years the station covers.
+  over exactly the years the station covers. Each station and year is one comparison, a
+  *station-year*.
 
 ### Which stations
 
 Every Northern-Hemisphere GHCN-Daily station whose snow-depth record spans at least 15 years of
 1950–2025 is a candidate: 24,049 stations with a land cell nearby. To stop dense networks (the
 United States, Canada, Sweden, Germany) from drowning out everything else, we keep **one station
-per 1° × 1° box**: the one with the longest record (then first-order and WMO stations before
-volunteer networks). If it fails a quality rule, the next one in the box is tried, up to six.
+per 1° × 1° box**: the one with the longest record (ties: main weather-service stations before
+volunteer networks, then the station closest to its cell's elevation). If it fails a quality rule,
+the next one in the box is tried, up to six.
 
 The quality rules matter more than anything else here, because many snow-depth records have gaps
 that are not random:
@@ -102,8 +105,8 @@ that are not random:
   threshold agrees there), stations where both the station and ERA5-Land at 1 cm are white in
   fewer than 5 % of years (they say nothing about the threshold), and stations more than 200 m
   above or below the mean elevation of their cell.
-- Flagged, not dropped: coastal stations, US stations (whole inches), and stations at or above
-  1,500 m.
+- Flagged, not dropped: coastal stations, US stations (whole inches), and stations where the
+  station or its cell lies at or above 1,500 m.
 
 Of 3,504 boxes with candidates, 1,563 have a station that passes the quality rules. We examined
 5,665 stations; **827 are used** (46,653 station-years), from sea level to 3,031 m and from 31° to
@@ -113,56 +116,76 @@ Of 3,504 boxes with candidates, 1,563 have a station that passes the quality rul
 
 ### Result
 
-| ERA5-Land threshold | Mean difference to stations | Typical error per station |
+| ERA5-Land threshold | ERA5-Land minus stations | Typical size of the difference |
 | --- | --- | --- |
-| ≥ 1 cm (raw) | +20.2 percentage points | 20.3 pp |
+| ≥ 1 cm (raw) | +20.2 pp | 20.3 pp |
 | ≥ 4 cm | +4.7 pp | 8.7 pp |
 | **≥ 5 cm (default)** | **+1.6 pp** (−0.3 to +3.9) | **8.6 pp** |
 | ≥ 6 cm | −1.2 pp | 9.3 pp |
 
-The range in brackets is a 95 % interval from a bootstrap that resamples stations in 5° × 5°
-blocks, so that neighbouring stations, which share the same weather, are not counted as
-independent evidence. At 5 cm, ERA5-Land and the station agree on white or green in 86 % of
-station-years.
+Positive means ERA5-Land is white more often than the station; the typical size is the average
+difference per station, ignoring its sign. The range in brackets is a 95 % uncertainty interval.
+It comes from re-drawing the stations many times in 5° × 5° blocks (a *block bootstrap*), so that
+neighbouring stations, which share the same weather, are not counted as independent evidence. At
+5 cm, ERA5-Land and the station agree on white or green in 86.5 % of station-years.
 
-Two things pull the number in different directions:
+**6 cm fits the full set of stations slightly better on average.** Its mean difference is closer
+to zero (−1.2 against +1.6 pp), and the threshold at which the mean difference would be exactly
+zero lies at 5.6 cm (4.9 to 6.5). Counting every region once instead of every station, 5 cm is
++3.2 pp (+1.8 to +4.7) too snowy and the zero point lies at 6.2 cm (5.7 to 6.9). But two other
+checks point the other way:
 
-- **Valley towns under hilly cells.** The difference grows by about **7 percentage points for every
-  100 m** that the cell's mean elevation lies above the station (4 to 9.5 pp, comparing stations
-  within the same region). A town in a valley gets the snowier climate of the hills around it.
-  For the 611 stations within 50 m of their cell's elevation, 5 cm fits best: −1.4 pp (−2.8 to
-  +0.3), with the zero crossing at 4.5 cm.
-- **Regions differ.** Counting every region once instead of every station, ERA5-Land at 5 cm is
-  +3.2 pp (+1.8 to +4.7) too snowy, mainly because of western North America (below).
+- **Stations below their cell.** The difference is larger where the cell's mean elevation lies
+  above the station: by about **7 pp per 100 m** (4 to 9.5 pp) among stations of the same region
+  within the 200 m limit. That is what one expects when a town in a valley shares a cell with
+  higher, snowier ground, but it is a correlation, and it is lopsided: the few stations that lie
+  above their cell are not too green. For the 611 stations within 50 m of their cell's elevation,
+  the difference at 5 cm is −1.4 pp (−2.8 to +0.3) and the zero point lies at 4.5 cm (4.2 to 5.1):
+  between 4 and 5 cm (4 cm has the smaller typical difference, 6.4 against 6.9 pp).
+- **Out of sample** (below), re-fitting a single threshold does not beat the fixed 5 cm.
 
-### Where the calibration holds, and where it does not
+So the best single threshold depends on which stations one trusts to represent their cell: about
+4.5 cm for stations at their cell's elevation, 5.6 to 6.2 cm for all stations. 5 cm lies within
+that range. The numbers also depend on the rules: keeping the stations more than 200 m from their
+cell's elevation raises the difference at 5 cm to +3.8 pp, relaxing the record requirements to
+10 years and 50 % coverage to +2.8 pp, and keeping only stations within 100 m of their cell's
+elevation lowers it to +0.2 pp.
 
-| Region | Stations | Difference at 5 cm (pp) | Stations at their cell's elevation |
-| --- | --- | --- | --- |
-| Eastern North America | 306 | −0.8 (−2.8 to +1.7) | −2.4 (259 stations) |
-| Great Plains & Prairies | 197 | −1.7 (−3.8 to +1.3) | −2.4 (172) |
-| Rocky Mountains & Intermountain West | 106 | **+10.7** (+5.8 to +15.0) | +11.3 (43) |
-| Western & Central Europe | 78 | **−5.3** (−6.9 to −1.7) | −6.6 (68) |
-| Pacific North America | 70 | **+12.7** (+9.8 to +16.7) | +6.1 (32) |
-| Nordic countries | 57 | +3.5 (−3.0 to +8.7) | −3.5 (31) |
+### Where 5 cm is consistent with the stations, and where it is not
 
-- **Holds:** the eastern half of North America and the Great Plains and Prairies, where most of
-  the stations are (the zero crossing lies between 4.5 and 4.7 cm), and the Nordic countries
-  within their wide uncertainty.
-- **Too snowy:** the Rocky Mountains, the Intermountain West and the Pacific side of North America.
-  Even at 8 cm ERA5-Land stays too snowy there. Part of it is the valley effect, but even
-  stations at their cell's elevation in the Rockies are 11 pp too snowy.
+Difference at 5 cm, ERA5-Land minus stations (pp), with the 95 % interval; second column: only the
+stations within 50 m of their cell's elevation.
+
+| Region (stations) | All stations | At cell elevation |
+| --- | --- | --- |
+| Eastern North America (306) | −0.8 (−2.8 to +1.7) | −2.4 (259) |
+| Great Plains & Prairies (197) | −1.7 (−3.8 to +1.3) | −2.4 (172) |
+| Rockies & Intermountain West (106) | **+10.7** (+5.8 to +15.0) | +11.3 (43) |
+| Western & Central Europe (78) | **−5.3** (−6.9 to −1.7) | −6.6 (68) |
+| Pacific North America (70) | **+12.7** (+9.8 to +16.7) | +6.1 (32) |
+| Nordic countries (57) | +3.5 (−3.0 to +8.7) | −3.5 (31) |
+
+- **Consistent:** the eastern half of North America and the Great Plains and Prairies, where most
+  of the stations are (zero points between 4.5 and 4.7 cm); among their stations at cell
+  elevation, ERA5-Land at 5 cm is slightly too green (about −2 pp). The Nordic countries are
+  consistent too, but with a wide interval.
+- **Too snowy:** the Rocky Mountains, the Intermountain West and the Pacific side of North America,
+  about 11 to 13 pp. The Rockies would need about 8 cm; the Pacific side is still 6.5 pp too snowy
+  at 8 cm. In the Rockies even stations at their cell's elevation are 11 pp too snowy.
 - **Too green:** the lowlands of western and central Europe (mostly Germany, the Netherlands and
-  the United Kingdom), where 3 cm would match better.
+  the United Kingdom), where about 3 cm would match.
 - **Is one threshold for the whole world justified?** We held out each 10° × 10° block of stations
-  in turn and chose the threshold on the others. A single global threshold chosen that way is
-  6 cm in 38 of 41 blocks, but it does worse on the held-out stations than the fixed 5 cm
-  (typical error 9.5 against 8.6 pp). A separate threshold per region would cut the typical
-  regional difference from about 6 pp to about 2 pp and the typical error per station from 8.6 to
-  8.0 pp.
-- **Scatter per station.** At a single station, ERA5-Land at 5 cm is typically about 9 percentage
-  points off either way. Chance alone (a station has only a few decades of Christmases) would
-  give about 4 pp, so most of the scatter is real local difference, not noise.
+  in turn and chose the whole-centimetre threshold with the smallest mean difference on the
+  others. That re-fitted threshold is 6 cm in 38 of 41 blocks. On the held-out stations it brings
+  the mean difference closer to zero than the fixed 5 cm (−0.8 against +1.6 pp) but makes the
+  typical difference per station larger (9.5 against 8.6 pp) and the typical regional difference
+  larger (6.4 against 5.8 pp). A separate threshold per region would cut the typical regional
+  difference to about 2 pp and the typical difference per station to 8.0 pp. (5 cm itself was
+  chosen earlier on 30 stations, 17 of which are among the 827 here, so the comparison is not
+  entirely independent.)
+- **Scatter per station.** At a single station, ERA5-Land at 5 cm is typically about 9 pp off
+  either way. Chance alone (a station has only a few decades of Christmases) would give about
+  4 pp, so most of the scatter is real local difference, not noise.
 
 ### What is untested
 
@@ -173,8 +196,8 @@ Two things pull the number in different directions:
   Japan (1) and Korea (1); none in European Russia, Siberia, Central Asia, China, Mongolia, the
   Tibetan Plateau, the Middle East or the Arctic islands. Of the 827 stations, 684 are in the
   United States and Canada.
-- **High mountains** are tested only in the Rockies: 56 stations at or above 1,500 m, where
-  ERA5-Land at 5 cm is 11 pp too snowy (6 to 14).
+- **High mountains** are tested only in the Rockies: 56 stations where the station or its cell lies
+  at or above 1,500 m; ERA5-Land at 5 cm is 11 pp too snowy there (6 to 14).
 - **The Southern Hemisphere** is out of scope: 25 December is midsummer there.
 - Other national archives with daily snow depth and open licences could fill some gaps (Finland's
   FMI, Japan's JMA, NSIDC's historical daily snow depth for the former Soviet Union up to 1995,
@@ -182,17 +205,17 @@ Two things pull the number in different directions:
 
 ### What it means for the 5 cm default
 
-The default stays at 5 cm. Over all usable stations its mean difference is within about two
-percentage points of zero, it is the best whole-centimetre threshold for stations at their
-cell's elevation, and out of sample it beats a globally re-fitted 6 cm. Where it fails is
-regional: about 11 to 13 percentage points too snowy in western North America and about 5 too
-green in the lowlands of western and central Europe. A single threshold cannot fix that, and
-there is no usable station data for most of Eurasia.
+The default stays at 5 cm for now. It lies inside the range of best-fitting single thresholds
+(about 4.5 cm for stations at their cell's elevation, 5.6 to 6.2 cm for all stations), and a
+re-fitted 6 cm does not do better on held-out stations except in the mean. What a single
+threshold cannot fix is regional: about 11 to 13 pp too snowy in western North America and about
+5 pp too green in the lowlands of western and central Europe, and there is no usable station
+data for most of Eurasia.
 
-The original calibration (decision D-17) used 30 hand-picked stations in Europe and North America
-and found +0.3 pp at 5 cm. Under the rules above, 29 of those stations still qualify and give
-+0.3 pp (typical error 8.1 pp). The hand-picked list is still available (`whitexmas stations
---mode list`) and reproduces the D-17 numbers unchanged.
+The original calibration (decision D-17 in the project's decision log) used 30 hand-picked
+stations in Europe and North America and found +0.3 pp at 5 cm. Under the rules above, 29 of those
+30 still qualify and give +0.3 pp (typical difference 8.1 pp). The hand-picked list is still
+available (`whitexmas stations --mode list`) and reproduces the D-17 numbers unchanged.
 
 ### Station files
 
@@ -266,8 +289,8 @@ nearest land cell within two cells (about 20 km); places with no land cell that 
 - **Mountains are smoothed.** Each cell has one average height. A deep valley and the peaks around
   it share a cell, so valley towns can look snowier than they are, and summits less snowy. In the
   station check, Sion in the Rhône valley sits under a cell almost 1,000 m higher, and ERA5-Land
-  calls every Christmas there white. Across hundreds of stations, each 100 m that a cell lies above
-  the town adds about 7 percentage points.
+  calls every Christmas there white. Across the station check, stations lying below their cell's
+  mean elevation tend to be too snowy, by about 7 percentage points per 100 m.
 - **The calibration is an average.** 5 cm matches the stations on average; at a single place the
   difference is typically about 9 percentage points either way. ERA5-Land at 5 cm is still too
   snowy in western North America and too green in the lowlands of western and central Europe, and

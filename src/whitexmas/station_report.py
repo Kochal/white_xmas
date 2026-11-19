@@ -357,6 +357,7 @@ def render(res: dict, paths=None) -> str:
     fl = st.get("flat", {})
     flo, flrb, flreg = fl.get("overall", {}), fl.get("region_balanced", {}), fl.get("regions", {})
     wr = st.get("elevation_within_region", {})
+    flat_mae_best = min(thresholds, key=lambda k: flo["mae_pp"][k]) if flo.get("mae_pp") else "–"
 
     def flat_txt(k: str) -> str:
         v = flreg.get(k)
@@ -440,26 +441,31 @@ At the raw 1 cm: {ov["bias_pp"][1]:+.1f} pp.</li>
 (every station once) and <b>{rb.get("best_whole_cm", "–")} cm</b> (every region once); the bias
 crosses zero at {_tstar(ov["t_star_cm"])} cm {_ci(ov.get("t_star_ci"))} and
 {_tstar(rb.get("t_star_cm", NAN))} cm {_ci(rb.get("t_star_ci"))} respectively.</li>
-<li><b>Most of that excess comes from stations lying below their cell.</b> For the
+<li><b>Much of that excess sits at stations lying below their cell.</b> For the
 {flo.get("n", 0)} stations within 50 m of their ERA5-Land cell's mean elevation, the bias at {t} cm
 is <b>{_f(flo.get("bias_pp", {}).get(t), 1, True)} pp</b> {_ci(flo.get("bias_ci", {}).get(t))}
 (every region once: {_f(flrb.get("bias_pp", {}).get(t), 1, True)} pp
 {_ci(flrb.get("bias_ci", {}).get(t))}), crossing zero at {_tstar(flo.get("t_star_cm", NAN))} cm
-{_ci(flo.get("t_star_ci"))}. Within a region, the bias rises by
+{_ci(flo.get("t_star_ci"))}. Within a region, the bias is larger by
 {_f(wr.get("slope_pp_per_100m"), 1, True)} pp {_ci(wr.get("slope_ci"))} for every 100 m the cell
-lies above the station: a town in a valley gets the snowier climate of the hills around it.</li>
+lies above the station (an association, consistent with a valley town sharing a cell with
+higher, snowier ground). For those stations the best whole cm by MAE is {flat_mae_best} cm.
+So the best single threshold depends on which stations are taken to represent their
+cell.</li>
 <li>Station-years at {t} cm: hit rate {cnt["hit_rate"]:.0%}, false-alarm ratio
-{cnt["false_alarm_ratio"]:.0%}, agreement {cnt["accuracy"]:.0%}, Heidke skill
+{cnt["false_alarm_ratio"]:.0%}, agreement {cnt["accuracy"]:.1%}, Heidke skill
 {cnt["heidke"]:.2f}.</li>
 <li>Per station the bias scatters (MAE {sp.get("mae_pp", NAN):.1f} pp); sampling noise alone
 would give about {sp.get("mae_noise_only_pp", NAN):.1f} pp, so most of the scatter is real: the
 station-to-station spread is about ±{sp.get("tau_pp", NAN):.0f} pp (1 s.d.).</li>
-<li>Out of sample (leave one 10° block out), one global whole-cm threshold gives MAE
-{cv["global"]["mae_pp"]:.1f} pp and leaves regional mean biases of
-{cv["global"]["region_mean_abs_bias_pp"]:.1f} pp on average; a threshold per region gives
-{cv["regional"]["mae_pp"]:.1f} pp and {cv["regional"]["region_mean_abs_bias_pp"]:.1f} pp; the
-fixed {t} cm gives {cv["fixed"]["mae_pp"]:.1f} pp and {
-        cv["fixed"]["region_mean_abs_bias_pp"]:.1f} pp.</li>
+<li>Out of sample (leave one 10° block out; thresholds chosen by smallest |mean bias|): one
+re-fitted global whole-cm threshold gives mean bias {cv["global"]["mean_bias_pp"]:+.1f} pp, MAE
+{cv["global"]["mae_pp"]:.1f} pp and mean |regional bias|
+{cv["global"]["region_mean_abs_bias_pp"]:.1f} pp; the fixed {t} cm gives
+{cv["fixed"]["mean_bias_pp"]:+.1f}, {cv["fixed"]["mae_pp"]:.1f} and
+{cv["fixed"]["region_mean_abs_bias_pp"]:.1f} pp; a threshold per region gives
+{cv["regional"]["mean_bias_pp"]:+.1f}, {cv["regional"]["mae_pp"]:.1f} and
+{cv["regional"]["region_mean_abs_bias_pp"]:.1f} pp.</li>
 </ul>
 <b>By region</b> (bias at {t} cm with 95 % spatial block-bootstrap interval; "consistent" = the
 interval includes 0; T* = where the mean bias crosses zero):<ul>{verdicts}</ul>
@@ -545,7 +551,10 @@ other regions, and the bias it leaves in this one (leave one region out).</p>
 <p>Each 10° × 10° block of stations is held out in turn ({cv["n_blocks"]} blocks); the threshold
 is chosen on the others and scored on the held-out stations. "Per region" chooses a threshold
 from the other stations of the same region (the global choice where fewer than {min_n} remain).
-Whole centimetres only, as the pipeline stores whole cm.</p>
+Whole centimetres only, as the pipeline stores whole cm. Thresholds are chosen by the smallest
+|mean bias| (the D-17 rule) but scored on several measures, so a rule can win on one and lose
+on another. The shipped 5 cm was chosen on the D-17 list, part of which is in this sample, so
+its row is not fully independent.</p>
 <div class=wrap><table><tr><th>threshold rule (out of sample)</th><th>mean bias (pp)</th>
 <th>MAE (pp)</th><th>RMSE (pp)</th><th>mean |regional bias| (pp)</th></tr>
 {cvrow(f"fixed {t} cm (shipped)", "fixed")}{cvrow("one global threshold", "global")}
@@ -565,11 +574,12 @@ its own (exact McNemar test, p &lt; 0.05; about 5 % would be by chance alone).</
 <p>Bias at {t} cm against the elevation of the ERA5-Land cell minus the station, over
 {el.get("n", 0)} stations that pass the data-quality rules (including those separated for a
 mismatch): {_f(el.get("slope_pp_per_100m"), 2, True)} pp per 100 m {_ci(el.get("slope_ci"), 2)},
-r = {_f(el.get("r"), 2)}. Within regions, over the stations used:
+r = {_f(el.get("r"), 2)}. Within regions, over the stations used (all within the
+±{res["rules"]["max_elev_diff_m"]:g} m limit):
 {_f(wr.get("slope_pp_per_100m"), 1, True)} pp per 100 m {_ci(wr.get("slope_ci"))}. A cell higher
-than its station is colder and snowier than the station's site, so a positive slope is expected;
-its size is the surprise: even inside the ±{res["rules"]["max_elev_diff_m"]:g} m tolerance it
-moves the bias by about as much as one centimetre of threshold.</p>
+than its station is usually colder and snowier than the station's site, so a positive slope is
+expected; its size is the surprise. It is an association, and it is not symmetric: stations lying
+above their cell are not too green (table).</p>
 <div class=wrap><table><tr><th>cell − station (m)</th><th>stations</th><th>mean bias (pp)</th>
 <th>MAE (pp)</th></tr>{elev_bins}</table></div>
 <p>High-mountain stations (station or cell ≥ {res["rules"]["high_mountain_m"]:g} m) used in the
