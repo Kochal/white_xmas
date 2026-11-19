@@ -1,4 +1,5 @@
-"""Command-line entry point: ``whitexmas download | ingest | indicators | export | build``."""
+"""Command-line entry point: ``whitexmas download | ingest | indicators | export | build``,
+plus ``whitexmas admin1 …`` (states and provinces) and ``whitexmas projections …``."""
 
 from __future__ import annotations
 
@@ -21,6 +22,10 @@ except ModuleNotFoundError as e:  # pragma: no cover - depends on which branch i
     # Only "the projections package is absent" is expected; re-raise anything else.
     if e.name not in ("whitexmas.projections", "whitexmas.projections.cli"):
         raise
+
+from .admin1.cli import app as admin1_app  # noqa: E402
+
+app.add_typer(admin1_app, name="admin1")
 
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Path to pipeline.yaml")]
 
