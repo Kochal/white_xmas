@@ -92,7 +92,8 @@ def build_ensemble(
         files = [f for f in files if f.stem in models]
     from .validation import dropped_models
 
-    exclude = set(s.exclude) or set(dropped_models(pp.validation))
+    # manual exclusions add to the automatic selection, never replace it
+    exclude = set(s.exclude) | set(dropped_models(pp.validation))
     if exclude:
         log.info("excluding models: %s", ", ".join(sorted(exclude)))
     files = [f for f in files if f.stem not in exclude]

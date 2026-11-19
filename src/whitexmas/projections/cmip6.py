@@ -55,22 +55,30 @@ def model_grid(cmip6_root: Path, model: str, experiment: str) -> str:
 def load_window(cmip6_root: Path, model: str, experiment: str, y0: int, y1: int) -> ModelField:
     """Daily snw for Christmas seasons ``y0..y1`` (11 Dec of y to 8 Jan of y+1).
 
-    Seasons before 2015 come from ``historical``, later ones from ``experiment``.
+    Days up to 31 Dec 2014 come from ``historical``, later days from ``experiment``. The split
+    is on the calendar date, not the season, so the 2014 season keeps its 1-8 Jan 2015 days
+    (which live in the scenario files); a ``historical`` window that reaches 2014 reads them
+    from ``ssp245``.
     """
     import xarray as xr
 
     coder = xr.coders.CFDatetimeCoder(use_cftime=True)
     times, vals, lat, lon = [], [], None, None
     grid = model_grid(cmip6_root, model, "ssp245")
-    for exp in dict.fromkeys(["historical", experiment]):
+    scenario = "ssp245" if experiment == "historical" else experiment
+    for exp in ("historical", scenario):
+        if exp == scenario and y1 < 2014:
+            continue
         for a, b, path in snw_files(cmip6_root, model, exp, grid):
             if b < y0 or a > y1 + 1:
                 continue
             with xr.open_dataset(path, decode_times=coder) as ds:
                 t = ds["time"].values
                 syear = np.array([d.year if d.month == 12 else d.year - 1 for d in t])
-                hist_ok = syear <= 2014 if exp == "historical" else syear >= 2015
-                sel = (syear >= y0) & (syear <= y1) & hist_ok
+                cal_ok = np.array([d.year <= 2014 for d in t])
+                if exp != "historical":
+                    cal_ok = ~cal_ok
+                sel = (syear >= y0) & (syear <= y1) & cal_ok
                 if not sel.any():
                     continue
                 times.extend(t[sel])
