@@ -372,6 +372,28 @@ def render(res: dict, paths=None) -> str:
         f"{_ci(v.get('t_star_ci'))}{flat_txt(k)}</li>"
         for k, v in sorted(tested.items(), key=lambda kv: kv[1]["bias_pp"][t])
     )
+    cim = st.get("ci_methods", {})
+    ci_rows = "".join(f"<tr><td>{E(k)}</td><td>{_ci(v)}</td></tr>" for k, v in cim.items())
+
+    def why(r: dict) -> str:
+        bits = (
+            [f"cell {r['elev_diff_m']:+.0f} m vs station"] if np.isfinite(r["elev_diff_m"]) else []
+        )
+        if r.get("cell_lake_cover", 0) > 0.05:
+            bits.append(f"cell {r['cell_lake_cover']:.0%} lake")
+        if "coastal" in r["flags"]:
+            bits.append("coastal (nearest land cell used)")
+        if r.get("dec_tmean_c") is not None and np.isfinite(r.get("dec_tmean_c", NAN)):
+            bits.append(f"December mean {r['dec_tmean_c']:+.1f} °C")
+        return "; ".join(bits)
+
+    ranked = sorted(used, key=lambda r: ss.bias(r, t))
+    extremes = "".join(
+        f"<li><b>{E(r['name'].title())}</b> ({E(r['id'])}, {E(r['region'])}): "
+        f"{ss.bias(r, t):+.0f} pp (station {r['obs_pct']:.0f} %, ERA5-Land ≥ {t} cm "
+        f"{r['model_pct'][t]:.0f} %, {r['years']} years). {E(why(r))}.</li>"
+        for r in ranked[-3:][::-1] + ranked[:3]
+    )
     sens = "".join(
         f"<tr><td>{E(x['variant'])}</td><td>{x['n']}</td>"
         + (
@@ -499,6 +521,14 @@ under such a cell) are flagged, not dropped.</p>
 
 <h2>Which threshold matches?</h2>
 {_threshold_table(ov, rb, thresholds, t)}
+<p>Intervals resample 10° × 10° blocks of stations and calendar years together (two-way
+bootstrap): all stations share the same Christmases, so a year in which ERA5-Land and many stations
+disagree at once is not independent evidence. The "every region once" interval resamples within
+the regions and treats the six regions themselves as fixed. How the interval of the mean bias at
+{t} cm depends on the resampling:</p>
+<div class=wrap><table><tr><th>resampling</th><th>95 % interval (pp)</th></tr>{
+        ci_rows
+    }</table></div>
 
 <h3>Stations at their cell's elevation (within 50 m)</h3>
 {_threshold_table(flo, flrb, thresholds, t) if flo else "<p>Too few stations.</p>"}
@@ -519,6 +549,10 @@ other regions, and the bias it leaves in this one (leave one region out).</p>
 {_group_table(regions, t, loro, min_n)}
 <h3>Map: bias at {t} cm</h3>{_legend()}{_map(used, t, paths)}
 <p class=mut>Hover a dot for the station. Map: Natural Earth.</p>
+<p><b>The largest differences</b> (ERA5-Land minus station at {
+        t
+    } cm), with what may explain them:</p>
+<ul>{extremes}</ul>
 <div class=figs><div>{
         _scatter(
             used,
