@@ -124,6 +124,50 @@ def mann_kendall_p(series: np.ndarray, tie_decimals: int = 6) -> np.ndarray:
     return np.where(n >= 3, p, np.nan)
 
 
+def benjamini_hochberg(p: np.ndarray, testable: np.ndarray) -> np.ndarray:
+    """Benjamini-Hochberg adjusted p-values (q) over the ``testable`` entries; NaN elsewhere.
+
+    q_(i) = min over j >= i of m p_(j) / j, capped at 1, with m the number of testable p-values
+    (ranked ascending). Controls the expected share of false discoveries among the regions
+    called significant at q < alpha (under independence or positive dependence, which is the
+    case for neighbouring regions sharing weather).
+    """
+    p = np.asarray(p, dtype="float64")
+    ok = np.asarray(testable, dtype=bool) & np.isfinite(p)
+    q = np.full(p.shape, np.nan)
+    m = int(ok.sum())
+    if m == 0:
+        return q
+    pv = p[ok]
+    order = np.argsort(pv, kind="stable")
+    ranked = pv[order] * m / np.arange(1, m + 1)
+    adj = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty(m)
+    out[order] = np.minimum(adj, 1.0)
+    q[ok] = out
+    return q
+
+
+def testable_series(series: np.ndarray, tie_decimals: int = 6) -> np.ndarray:
+    """Rows of ``series[region, year]`` that can show a trend: at least 3 finite years and not
+    constant (an always-0 % or always-100 % region has Mann-Kendall p = 1 by construction and
+    cannot be a false discovery, so it does not count towards the number of tests)."""
+    y = np.round(np.asarray(series, dtype="float64"), tie_decimals)
+    ok = np.isfinite(y)
+    hi = np.where(ok, y, -np.inf).max(axis=1)
+    lo = np.where(ok, y, np.inf).min(axis=1)
+    return (ok.sum(axis=1) >= 3) & (hi > lo)
+
+
+def trend_q(series: np.ndarray, trend_p: np.ndarray) -> np.ndarray:
+    """BH q-values of the trend tests, per threshold and definition, across the testable
+    regions. ``series[t, d, region, year]``, ``trend_p[t, d, region]``."""
+    q = np.full(trend_p.shape, np.nan)
+    for idx in np.ndindex(trend_p.shape[:-1]):
+        q[idx] = benjamini_hochberg(trend_p[idx], testable_series(series[idx]))
+    return q
+
+
 def ensemble_summary(
     model_means: np.ndarray, baseline: np.ndarray, zero_pp: float = 0.05, share: float = 2 / 3
 ) -> dict[str, np.ndarray]:

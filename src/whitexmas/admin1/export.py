@@ -75,8 +75,18 @@ def header(info: dict) -> dict:
     }
 
 
+def ensure_trend_q(s: dict) -> dict:
+    """Add Benjamini-Hochberg q-values of the trend tests (``trend_q``) if missing."""
+    if "trend_q" not in s:
+        from .stats import trend_q
+
+        s["trend_q"] = trend_q(s["series"], s["trend_p"])
+    return s
+
+
 def build_index(regions: list[dict], s: dict, info: dict) -> dict:
     """index.json: headline numbers for the default threshold and definition."""
+    ensure_trend_q(s)
     t0, d0 = 0, info["definitions"].index(info["default_definition"])
     wid = info["windows"]
     wf, wt, wn = (wid.index(info["window_ids"][k]) for k in ("full", "then", "now"))
@@ -87,6 +97,7 @@ def build_index(regions: list[dict], s: dict, info: dict) -> dict:
     for k in raw:
         fields += [f"p_then_{info['thresholds'][k]}", f"p_now_{info['thresholds'][k]}"]
     fields += [f"p_gwl{g:.1f}" for g in gwls]
+    fields += ["type", "trend_q"]  # contract v1.6 (review round): appended, additive
     rows = []
     for k, r in enumerate(regions):
         p = s["p"][t0, d0, :, k]
@@ -101,6 +112,7 @@ def build_index(regions: list[dict], s: dict, info: dict) -> dict:
             row += [_r(s["p"][t, d0, wt, k]), _r(s["p"][t, d0, wn, k])]
         if gwls:
             row += _rl(s["proj_p50"][:, k])
+        row += [r["type"], _r(s["trend_q"][t0, d0, k], 4)]
         rows.append(row)
     countries = {}
     for r in regions:
@@ -123,6 +135,7 @@ def build_index(regions: list[dict], s: dict, info: dict) -> dict:
 
 def build_country(country: str, members: list[int], regions: list[dict], s: dict, info: dict):
     """c/<country>.json: full statistics for the regions of one country."""
+    ensure_trend_q(s)
     T, D = info["thresholds"], info["definitions"]
     gwls = info.get("gwls") or []
     out_regions = []
@@ -145,6 +158,7 @@ def build_country(country: str, members: list[int], regions: list[dict], s: dict
                     "change_pop": _r(pp[wn] - pp[wt]),
                     "trend": _r(s["trend"][ti, di, k], 2),
                     "trend_p": _r(s["trend_p"][ti, di, k], 4),
+                    "trend_q": _r(s["trend_q"][ti, di, k], 4),
                     "series": _rl(s["series"][ti, di, k]),
                 }
         proj = None

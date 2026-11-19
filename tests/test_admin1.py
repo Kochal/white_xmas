@@ -221,7 +221,10 @@ def test_export_writes_valid_json_and_stage_copies_it(synthetic, tmp_path):
     sizes = write_web(prod / "web", meta, s, gj, info)
     idx = json.loads((prod / "web/admin1/index.json").read_text(encoding="utf-8"))
     assert [r[0] for r in idx["rows"]] == [r["id"] for r in regions]
-    assert idx["rows"][3][7:] == [None] * (len(idx["fields"]) - 7)  # no NaN, nulls
+    d = dict(zip(idx["fields"], idx["rows"][3], strict=True))
+    nums = [v for k, v in d.items() if k not in ("id", "name", "country", "lon", "lat",
+                                                 "area_km2", "flags", "type")]  # fmt: skip
+    assert nums == [None] * len(nums)  # no NaN, nulls
     assert "p_gwl2.0" not in idx["fields"]  # no projections in this build
     a = json.loads((prod / "web/admin1/c/AAA.json").read_text(encoding="utf-8"))
     assert a["projections"] is None and a["regions"][0]["proj"] is None
@@ -269,3 +272,76 @@ def test_dissolve_and_ids():
     assert regs["IT-25"]["n_features"] == 2
     assert regs["DE-BY"]["name"] == "Bavaria" and regs["DE-BY"]["name_local"] == "Bayern"
     assert regs["CNM"]["source"] == "ne_admin0"
+
+
+# --------------------------------------------------------------------------- review round
+def test_benjamini_hochberg_matches_reference_and_skips_untestable():
+    p = np.array([0.01, 0.04, 0.03, 0.20, np.nan, 1.0])
+    testable = np.array([True, True, True, True, True, False])
+    q = st.benjamini_hochberg(p, testable)
+    # m = 4 testable: sorted 0.01, 0.03, 0.04, 0.20 -> 0.04, 0.0533, 0.0533, 0.20
+    assert q[0] == pytest.approx(0.04)
+    assert q[1] == pytest.approx(0.04 * 4 / 3) and q[2] == pytest.approx(0.04 * 4 / 3)
+    assert q[3] == pytest.approx(0.2)
+    assert np.isnan(q[4]) and np.isnan(q[5])  # NaN p and the constant series get no q
+    assert (q[:4] >= p[:4]).all()
+
+
+def test_testable_series_excludes_constant_and_short_rows():
+    s = np.array([[0.0] * 10, [100.0] * 10, [0.0] * 9 + [5.0], [np.nan] * 8 + [1.0, 2.0]])
+    assert st.testable_series(s).tolist() == [False, False, True, False]
+
+
+def test_trend_q_in_index_and_country_files(synthetic, tmp_path):
+    from whitexmas.admin1.build import export_info
+
+    cfg, regions, ind, s, yrs, w = synthetic
+    s = {k: v for k, v in s.items() if not k.startswith("_")}
+    s["source"] = np.array([r["source"] for r in regions])
+    meta = [{**{k: v for k, v in r.items() if k != "geom"}, "lon": 0.0, "lat": 0.0,
+             "bbox": [0, 0, 1, 1]} for r in regions]  # fmt: skip
+    info = export_info(cfg, {"thresholds": [t["id"] for t in cfg.thresholds],
+                             "definitions": cfg.definition_ids,
+                             "windows": [x.id for x in cfg.windows()],
+                             "years": [int(y) for y in yrs], "projections": {}})  # fmt: skip
+    idx = build_index(meta, s, info)
+    f = idx["fields"]
+    assert f[-2:] == ["type", "trend_q"]
+    rows = {r[0]: dict(zip(f, r, strict=True)) for r in idx["rows"]}
+    assert rows["AA-A"]["type"] == "State"
+    # A is the only testable region (B is constant), so its q equals its p
+    assert rows["AA-A"]["trend_q"] == rows["AA-A"]["trend_p"]
+    assert rows["AA-B"]["trend_q"] is None and rows["AA-B"]["trend_p"] == 1.0
+
+
+def test_wrapped_bounds_for_antimeridian_regions():
+    from whitexmas.admin1.geometry import wrapped_bounds
+
+    alaska = shapely.MultiPolygon([
+        shapely.box(-179.14, 51.2, -129.98, 71.4), shapely.box(172.4, 52.0, 179.78, 53.0),
+    ])  # fmt: skip
+    assert wrapped_bounds(alaska) == pytest.approx([172.4, 51.2, 230.02, 71.4])
+    chukotka = shapely.MultiPolygon([
+        shapely.box(-180.0, 64.0, -169.0, 68.0), shapely.box(160.0, 61.8, 180.0, 71.6),
+    ])  # fmt: skip
+    assert wrapped_bounds(chukotka) == pytest.approx([160.0, 61.8, 191.0, 71.6])
+    bavaria = shapely.box(8.98, 47.27, 13.84, 50.56)
+    assert wrapped_bounds(bavaria) == pytest.approx([8.98, 47.27, 13.84, 50.56])
+    antarctica = shapely.box(-180.0, -90.0, 180.0, -60.0)
+    assert wrapped_bounds(antarctica) == pytest.approx([-180.0, -90.0, 180.0, -60.0])
+    # parts spread around most of the globe (Natural Earth's second Antarctica feature): plain
+    ata = shapely.MultiPolygon(
+        [shapely.box(-171.9, -83, 121.2, -61), shapely.box(161.8, -80, 169.96, -70)]
+    )
+    assert wrapped_bounds(ata) == pytest.approx([-171.9, -83, 169.96, -61])
+    # a region with parts in both hemispheres but far from the antimeridian keeps plain bounds
+    split = shapely.MultiPolygon([shapely.box(-10, 0, -5, 1), shapely.box(5, 0, 10, 1)])
+    assert wrapped_bounds(split) == pytest.approx([-10, 0, 10, 1])
+
+
+def test_region_ids_fit_the_url_pattern():
+    from whitexmas.admin1.boundaries import ID_RE
+
+    assert ID_RE.match("SVN-JUGOVZHODNA-SLOVENIJA")  # 25 chars, the longest real id
+    assert not ID_RE.match("-DE")
+    assert not ID_RE.match("A" * 49)

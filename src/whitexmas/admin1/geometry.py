@@ -41,6 +41,39 @@ def _polygons(geom) -> list:
     return []
 
 
+def wrapped_bounds(geom) -> list[float]:
+    """``[west, south, east, north]`` of the smallest longitude span that holds every part.
+
+    Natural Earth splits regions that cross the antimeridian (Alaska, Chukotka, Fiji,
+    Kiribati) into parts near +180 and -180, so their plain bounds span the whole globe. Here
+    the parts' longitude intervals are merged on the circle and the largest empty gap is left
+    out; when that gap is not the one across ±180, the box wraps and ``east`` is given + 360
+    (e.g. Alaska ``[172.4, 51.2, 230.0, 71.4]``), which MapLibre's ``fitBounds`` accepts.
+    A box is wrapped only when that makes it narrower than 180°; a region spread around most
+    of the globe (both Antarctica features) keeps its plain ``[-180…180]``-style bounds.
+    """
+    x0, y0, x1, y1 = geom.bounds
+    parts = _polygons(geom) or [geom]
+    iv = sorted((p.bounds[0], p.bounds[2]) for p in parts)
+    merged: list[list[float]] = []
+    for a, b in iv:
+        if merged and a <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], b)
+        else:
+            merged.append([a, b])
+    # gap across the antimeridian: from the last interval's end to the first one's start
+    best_gap = merged[0][0] + 360.0 - merged[-1][1]
+    west, east = x0, x1
+    for k in range(1, len(merged)):
+        gap = merged[k][0] - merged[k - 1][1]
+        if gap > best_gap:
+            best_gap = gap
+            west, east = merged[k][0], merged[k - 1][1] + 360.0
+    if east - west >= 180.0:
+        west, east = x0, x1
+    return [float(west), float(y0), float(east), float(y1)]
+
+
 def drop_small_parts(geom, min_km2: float):
     import shapely
 

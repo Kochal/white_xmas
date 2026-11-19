@@ -27,6 +27,9 @@ log = logging.getLogger(__name__)
 NE_ADMIN1_ZIP = "ne_10m_admin_1_states_provinces.zip"
 NE_ADMIN1_SHP = "ne_10m_admin_1_states_provinces.shp"
 ISO_RE = re.compile(r"^[A-Z]{2}-[A-Z0-9]{1,3}$")
+# Region ids go into URLs (#/region/<id>); the website accepts exactly this pattern
+# (web/src/lib/url-state.ts REGION_ID), so both sides must change together.
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,47}$")
 ADMIN1_COLUMNS = [
     "adm1_code", "iso_3166_2", "name", "name_en", "type_en", "adm0_a3", "admin",
     "region", "region_cod", "geonunit",
@@ -145,6 +148,9 @@ def build_regions(admin1: list[dict], countries: list[dict], dissolve: dict) -> 
             log.warning("admin1: duplicate id %s; renamed %s-%d", r["id"], r["id"], n + 1)
             r["id"] = f"{r['id']}-{n + 1}"
     regions.sort(key=lambda r: (r["country"], r["id"]))
+    bad = [r["id"] for r in regions if not ID_RE.match(r["id"])]
+    if bad:
+        raise ValueError(f"admin1 ids outside {ID_RE.pattern}: {bad[:10]}")
     log.info(
         "admin1: %d regions in %d countries (%d dissolved groups, %d whole countries)",
         len(regions), len({r["country"] for r in regions}), len(groups),

@@ -82,7 +82,7 @@ def make_sample(ext_dir: Path, cfg, out: Path, countries=SAMPLE_COUNTRIES) -> di
     from .boundaries import load_regions
     from .build import export_info
     from .export import write_web
-    from .geometry import approx_km2, boundaries_geojson, simplify_regions
+    from .geometry import approx_km2, boundaries_geojson, simplify_regions, wrapped_bounds
 
     a1 = cfg.raw.get("admin1") or {}
     allr = load_regions(ext_dir, a1)
@@ -95,7 +95,7 @@ def make_sample(ext_dir: Path, cfg, out: Path, countries=SAMPLE_COUNTRIES) -> di
         meta.append({
             **{k: r[k] for k in ("id", "name", "name_local", "type", "country", "country_name",
                                  "adm0_a3", "source", "n_features")},
-            "lon": p.x, "lat": p.y, "bbox": list(r["geom"].bounds),
+            "lon": p.x, "lat": p.y, "bbox": wrapped_bounds(r["geom"]),
             "area_hint": approx_km2(r["geom"]),
         })  # fmt: skip
     windows = [w.id for w in cfg.windows()]

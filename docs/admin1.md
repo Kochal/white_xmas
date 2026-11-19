@@ -90,7 +90,7 @@ For both thresholds (calibrated 5 cm default, raw 1 cm) and all three definition
 | Change | 1996–2025 minus 1961–1990 of the regional values (pp) |
 | Yearly series 1950–2025 | per year, the area-weighted share of the region that was white (%) |
 | Trend | ordinary least squares slope of the yearly series, pp per decade (identical to the area-weighted mean of the cells' trends) |
-| Significance | Mann-Kendall test on the yearly regional series (tie-corrected); `trend_p < 0.1` counts as significant, as on the map |
+| Significance | Mann-Kendall test on the yearly regional series (tie-corrected), `trend_p`; and the Benjamini-Hochberg adjusted `trend_q` across all testable regions (see below). A **clear trend** is `trend_q < 0.1` |
 | Spread | area share with p ≥ 50 % (`share50`), and the 5th and 95th percentiles of the cell probabilities weighted by area (`p5`, `p95`), per window |
 | Elevation | ERA5-Land cell mean elevation: area-weighted mean, and min and max over the region's land cells that lie at least half inside it |
 | Population-weighted probability | see below, per window, plus its change |
@@ -98,6 +98,24 @@ For both thresholds (calibrated 5 cm default, raw 1 cm) and all three definition
 The regional trend test runs on the regional series, not by counting significant cells: a
 region where most cells drift down slightly can be clearly significant as a whole even when
 few of its cells are on their own.
+
+**Many regions, many tests.** `trend_p` is a per-region test at α = 0.1: among regions whose
+white-Christmas chance has not really changed, about 1 in 10 still passes it by chance. With
+about 1,600 testable regions that is around 160 false "trends", so `trend_p < 0.1` alone must
+not be read as "this region has a clear trend". Each region therefore also gets
+**`trend_q`**, the Benjamini-Hochberg adjusted p-value computed across all testable regions
+(per threshold and definition): among the regions with `trend_q < 0.1`, at most about 10 % are
+expected to be false discoveries. Testable means a series with at least 3 years that is not
+constant; the ~2,200 regions that are always 0 % or always 100 % (Mann-Kendall p = 1 by
+construction) cannot be false discoveries and are not counted (`trend_q` is `null` for them).
+Benjamini-Hochberg remains valid when tests are positively dependent, which is the case here:
+neighbouring regions share the same weather, so their tests are not independent. **The site
+should use `trend_q < 0.1` for "clear trend"** and may show `trend_p` as detail. Real data
+(calibrated, Christmas Day): 1,583 testable regions, 404 with `trend_p < 0.1`, 75 with
+`trend_q < 0.1` (Bavaria q = 0.03, Scotland 0.10; Tyrol p = 0.009 but q = 0.15; Lombardy
+p = 0.03, q = 0.24). Lag-1 autocorrelation of the regional series is small or negative
+(Bavaria −0.22, Minnesota −0.18, Hokkaido 0.13; independent review), so Mann-Kendall without
+prewhitening is adequate, slightly conservative where it is negative.
 
 **Projections** (+1.5, +2, +3 °C; calibrated threshold, Christmas Day; method B as in
 [projections.md](projections.md)): for each of the 19 CMIP6 models, the model's projected
@@ -155,13 +173,14 @@ them, and must work without them.
   "threshold": "calibrated",                  // values below: default threshold …
   "definition": "christmas_day",              // … and default definition
   "windows": { "p_full": "1950_2025", "p_then": "1961_1990", "p_now": "1996_2025" },
-  "trend_alpha": 0.1,                         // trend_p < trend_alpha = significant
+  "trend_alpha": 0.1,                         // trend_q < trend_alpha = clear trend
   "headline": "area",                         // p_* are area-weighted; *_pop population-weighted
   "fields": ["id", "name", "country", "lon", "lat", "area_km2", "flags",
              "p_full", "p_then", "p_now", "change", "trend", "trend_p", "p_now_pop",
-             "p_then_raw", "p_now_raw", "p_gwl1.5", "p_gwl2.0", "p_gwl3.0"],
+             "p_then_raw", "p_now_raw", "p_gwl1.5", "p_gwl2.0", "p_gwl3.0",
+             "type", "trend_q"],
   "rows": [["DE-BY", "Bavaria", "DEU", 11.3, 48.9, 70550, [], 33.0, 41.0, 26.0, -15.0,
-            -2.31, 0.012, 21.4, 70.1, 61.0, 21.0, 18.0, 11.0]],
+            -2.31, 0.012, 21.4, 70.1, 61.0, 21.0, 18.0, 11.0, "State", 0.033]],
   "countries": { "DEU": { "name": "Germany", "regions": 16 } },
   "flags": { "low_res": "fewer than 3 land cells …", "…": "…" },  // texts for every flag
   "attribution": "Borders: Natural Earth (public domain). Places: GeoNames (CC BY 4.0)."
@@ -171,12 +190,20 @@ them, and must work without them.
 - One row per region, in the order of `boundaries.json` feature ids (row k ↔ feature id k).
 - `lon`, `lat`: a point inside the region (for labels and search results); `area_km2`: the
   polygon area.
-- `trend`: pp/decade over the full period; `trend_p`: Mann-Kendall p (the site decides how to
-  show insignificant trends, e.g. greyed out, like the hatching on the map).
+- `trend`: pp/decade over the full period; `trend_p`: per-region Mann-Kendall p; `trend_q`:
+  Benjamini-Hochberg q across all testable regions, `null` for constant series. **Use
+  `trend_q < trend_alpha` for "clear trend"** (see Statistics); `trend_p` is detail only.
+- `type`: the region's kind as Natural Earth names it in English (State, Province, Region,
+  County, Municipality, …; "Region" for dissolved groups, "Country" for `admin0`), to tell
+  duplicate names apart (Buenos Aires city and province, Sofia, Lankaran × 3, Antarctica × 2).
+- `p_full`, `p_then`: also useful as tie-breaks when many regions share a rounded `p_now`
+  (dozens at 100 %, about 2,000 at 0 %).
 - `p_then_<id>`/`p_now_<id>`: the other thresholds (today `raw`), as in `regions.json`.
 - `p_gwl<level>`: median projected probability (calibrated threshold); absent when
   projections are not available.
 - Any value can be `null`; `flags` (array of strings) says why.
+- Fields are looked up by name in `fields`; new fields are only ever appended (`type` and
+  `trend_q` were added in the review round of contract v1.6).
 
 **Flags:** `admin0` (no admin-1 subdivision in the source: the region is the whole admin-0
 unit), `low_res` (fewer than 3 land cells), `nearest_cell` (no land cell inside: nearest land
@@ -217,7 +244,7 @@ GeoJSON within 1.5 MB gzip is simpler and is enough for 4,000 polygons.
   "regions": [{
     "id": "DE-BY", "name": "Bavaria", "name_local": "Bayern", "type": "State",
     "flags": [],
-    "lon": 11.3, "lat": 48.9, "bbox": [8.98, 47.27, 13.84, 50.56],
+    "lon": 11.3, "lat": 48.9, "bbox": [8.98, 47.27, 13.84, 50.56],   // [west, south, east, north]
     "area_km2": 70550,          // polygon area
     "land_km2": 69800,          // land cells used (glaciers excluded)
     "cells": 840.2,             // land cells used, as a sum of cell fractions
@@ -234,6 +261,7 @@ GeoJSON within 1.5 MB gzip is simpler and is enough for 4,000 polygons.
           "p95":     [83.0, 90.0, 76.7, …],   // 95th percentile
           "change": -15.0, "change_pop": -12.2,  // p_now - p_then (pp)
           "trend": -2.31, "trend_p": 0.012,       // pp/decade, Mann-Kendall p
+          "trend_q": 0.033,                       // BH q; "clear trend" = trend_q < 0.1
           "series": [55.2, 12.0, …]               // % of the area white, per year
         },
         "all_three_days": { … }, "any_day": { … }
@@ -253,6 +281,14 @@ GeoJSON within 1.5 MB gzip is simpler and is enough for 4,000 polygons.
 ```
 
 All probabilities are % with one decimal; `null` where not computable (see `flags`).
+
+`bbox` is the smallest longitude span holding the region. For a region split at the
+antimeridian (Alaska, Chukotka, Fiji, Kiribati) it wraps: `east` is given + 360, so
+`west < east` always holds and `east` can exceed 180 (Alaska `[172.48, 51.22, 230.01, 71.41]`,
+Chukotka `[157.69, 61.81, 191.01, 71.6]`, Fiji's Northern division `[178.28, -17.01, 180.18,
+-16.12]`, Kiribati `[169.52, -11.46, 208.22, 4.72]`); a wrapped box is always narrower than
+180°. MapLibre's `fitBounds` accepts that directly. The two Antarctica features, spread around
+the globe, keep plain bounds (`[-180, -90, 180, -60.52]`).
 
 ### Sample fixture
 

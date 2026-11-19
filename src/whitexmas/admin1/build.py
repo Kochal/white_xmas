@@ -126,7 +126,7 @@ def step_weights(cfg: Config, paths: DataPaths, force: bool = False) -> dict:
     from ..export.places import read_cities
     from ..external import fetch
     from .boundaries import load_regions
-    from .geometry import boundaries_geojson, simplify_regions
+    from .geometry import boundaries_geojson, simplify_regions, wrapped_bounds
 
     a1 = cfg.raw.get("admin1") or {}
     ap = Admin1Paths(paths)
@@ -167,7 +167,7 @@ def step_weights(cfg: Config, paths: DataPaths, force: bool = False) -> dict:
         meta.append({
             **{k: r[k] for k in ("id", "name", "name_local", "type", "country", "country_name",
                                  "adm0_a3", "source", "n_features")},
-            "lon": p.x, "lat": p.y, "bbox": list(r["geom"].bounds),
+            "lon": p.x, "lat": p.y, "bbox": wrapped_bounds(r["geom"]),
         })  # fmt: skip
     ap.interim.mkdir(parents=True, exist_ok=True)
     ap.regions.write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
