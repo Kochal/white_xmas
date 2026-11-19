@@ -653,26 +653,48 @@ files.
 and 1391 point tiles 1.5 MB; `cog/` 26 MB; `manifest_fragment.json`, identical to the released
 one: same layer ids, URLs and `projections` block, so no contract change).
 
-**A data-2025.2 release from it (not built).** Into a fresh web-out, never over a released one:
+**A data-2025.2 release from it (not built).** Into a fresh web-out, never over a released one.
+Commands in PowerShell syntax (this machine); in a POSIX shell write
+`WHITEXMAS_PROJ_VARIANT=v2 uv run …`.
 
-1. Set `export.build_counter: 2` in `config/pipeline.yaml` (unset means 1, so `data_version`
-   becomes `2025.2` and the bundle name does not collide with `whitexmas-web-data-2025.1.tar.gz`).
-2. If PR #5 (admin1) is merged by then, rebuild its statistics on the fixed projections first:
-   `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas admin1 stats`, then
-   `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas admin1 export` (`weights` does not depend on the
-   projections; `stats` rebuilds by itself because the ensemble's `settings` attribute now
-   carries the estimator).
-3. `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas export --web-out <new empty folder>`: stages the
-   v2 projection tiles and point tiles, writes `manifest.json` with `data_version` 2025.2, and
-   writes `products/whitexmas-web-data-2025.2.tar.gz` (about the size of 2025.1, 194 MB: the
-   projection files total 16.54 MB against 16.56 MB).
-4. Publish the GitHub release `data-2025.2` and run `pages.yml` with `data_version: 2025.2`.
+1. Set `export.build_counter: 2` in `config/pipeline.yaml` (unset means 1). `data_version`
+   becomes `2025.2`, and the bundle name does not collide with
+   `whitexmas-web-data-2025.1.tar.gz`. **Commit this change before building**: the manifest's
+   `build_hash` is the commit plus `-dirty` when `src/` or `config/` has uncommitted changes.
+2. If you want to keep the 2025.1 historical COGs, copy `products/cog/` aside first.
+   `build_counter` is part of the `export` section hash, so the export fingerprint changes, and
+   the export rewrites every `products/cog/*.tif` with the tag `data_version = 2025.2`. These
+   COGs are not in the released tarball, so data-2025.1 itself stays intact.
+3. If PR #5 (admin1) is merged by then, rebuild its statistics on the fixed projections first:
+   `$env:WHITEXMAS_PROJ_VARIANT='v2'; uv run whitexmas admin1 stats`, then
+   `uv run whitexmas admin1 export` in the same shell. `weights` does not depend on the
+   projections. `stats` rebuilds by itself, because the ensemble's `settings` attribute now
+   carries the estimator.
+4. `$env:WHITEXMAS_PROJ_VARIANT='v2'; uv run whitexmas export --web-out <new empty folder>`.
+   - Because the fingerprint changed (step 2), every historical layer is **fully re-rendered**:
+     expect the full export time and memory, not minutes. Run nothing else heavy alongside it.
+   - It stages the v2 projection tiles and point tiles. `stage_files` checks the size and
+     SHA-256 of every staged file against `products/projections_v2/web`.
+   - It writes `manifest.json` with `data_version` 2025.2, and
+     `products/whitexmas-web-data-2025.2.tar.gz` (about the size of 2025.1, 194 MB; the
+     projection files total about 16.5 MB, as before).
+   - Without the variant, `manifest_fragment()` stops with an error, because the default
+     folder's fragment (data-2025.1) records no estimator.
+5. Publish the GitHub release `data-2025.2` and run `pages.yml` with `data_version: 2025.2`.
+   `pages.yml` warns if the bundled manifest's `data_version` differs from the release tag.
+   There is no other checksum file to regenerate.
 
-Promoting v2 to the default folders (renaming `interim/projections_v2` and
-`products/projections_v2` over the old ones) works too and then needs no environment variable;
-keep the old folders as `*_v1` until data-2025.2 is live. Without either, the default-folder
-per-model files carry no `estimator`, so `whitexmas projections ensemble` refuses them until
-`changes` is re-run.
+**After merging, keep data-2025.1 reproducible.** A plain `whitexmas projections run` (no
+variant) rebuilds `interim/projections` and `products/projections` in place. After that, the
+material behind data-2025.1 can no longer be rebuilt from those folders. Do one of these:
+
+- Rename the default folders to `interim/projections_v1` and `products/projections_v1`, and
+  rename the `*_v2` folders to the defaults. After that no environment variable is needed, and
+  `--variant v1` still reads the old set.
+- Keep using `--variant v2` / `WHITEXMAS_PROJ_VARIANT` until data-2025.2 is out.
+
+Until then, the default-folder per-model files carry no `estimator`, so
+`whitexmas projections ensemble` refuses them.
 
 ## Limitations
 
