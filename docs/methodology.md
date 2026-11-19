@@ -110,8 +110,9 @@ cell within two cells (about 20 km); places with no land cell that close are lef
   can give different numbers.
 - **A reanalysis is a model.** ERA5-Land's snow is not measured directly: it is simulated from
   ERA5 weather, which assimilates observations. It can be too deep or too shallow in places, and
-  it tends to be less reliable where few weather stations exist. Compared with station records,
-  numbers can differ by several percentage points.
+  it tends to be less reliable where few weather stations exist. We check it against weather
+  stations with `whitexmas stations` (GHCN-Daily snow depth on 25 December, 46 stations; method
+  and results in the station-check report it writes).
 - **Earlier years are less certain.** Fewer observations went into the reanalysis in the 1950s and
   1960s, especially outside Europe and North America.
 - **The old maps are not comparable.** An earlier version of this analysis counted a single hour

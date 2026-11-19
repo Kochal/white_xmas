@@ -140,6 +140,22 @@ def sanity(
 
 
 @app.command()
+def stations(config: ConfigOpt = None, verbose: bool = False) -> None:
+    """Check snow thresholds against GHCN-Daily weather stations (calibrates threshold_cm)."""
+    from .stations import run
+
+    cfg, paths = _setup(config, verbose)
+    res = run(cfg, paths)
+    cal = res["calibration"]
+    typer.echo(
+        f"{len(res['stations'])} stations ({cal['n_calibration']} for calibration); "
+        f"best whole-cm threshold: {cal['best_cm']} cm "
+        f"(bias {cal['stats'][cal['best_cm']]['bias_pp']:+.1f} pp, "
+        f"MAE {cal['stats'][cal['best_cm']]['mae_pp']:.1f} pp)"
+    )
+
+
+@app.command()
 def build(
     config: ConfigOpt = None,
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
