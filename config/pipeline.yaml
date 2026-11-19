@@ -56,8 +56,8 @@ windows:
     - [1996, 2025]
   decades: true         # 10-year windows ending in the last year, back to the first full decade
   change:
-    from: 1961_1990
-    to: 1996_2025
+    from: "1961_1990"
+    to: "1996_2025"
 
 trend:
   window: full

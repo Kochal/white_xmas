@@ -125,7 +125,13 @@ class Config:
     @property
     def change_pair(self) -> tuple[str, str]:
         c = self.raw["windows"].get("change", {})
-        return c.get("from", "1961_1990"), c.get("to", "1996_2025")
+        # str(): YAML 1.1 reads an unquoted 1961_1990 as the integer 19611990
+        a, b = c.get("from", "1961_1990"), c.get("to", "1996_2025")
+        if isinstance(a, int):
+            a = f"{str(a)[:4]}_{str(a)[4:]}"
+        if isinstance(b, int):
+            b = f"{str(b)[:4]}_{str(b)[4:]}"
+        return str(a), str(b)
 
     def full_window(self) -> Window:
         return next(w for w in self.windows() if w.kind == "full")
