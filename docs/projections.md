@@ -1,7 +1,7 @@
 # Future projections: white Christmas at +1.5, +2 and +3 °C
 
-Status: **Phase 1 done; Phase 2 built and validated on 1961–1990; final validation and the real
-baseline wait for the pipeline's ERA5-Land 1996–2025 data.**
+Status: **Phase 1 done; Phase 2 built and validated on ERA5-Land 1996–2025 with a hindcast; the
+export on the real baseline waits for the pipeline's `indicators.zarr`.**
 This page is the working document for the projections track (plan §3b, milestones P1–P2). The
 method, model list, skill table and limitations sections are filled in as Phase 2 lands.
 
@@ -242,7 +242,9 @@ Code: `src/whitexmas/projections/`, tests in `tests/projections/`.
 ## Validation and model selection
 
 Three checks per model, all scored over land 25–75 °N (where Christmas snow varies), weighted by
-cos(latitude), glacier cells excluded, on each model's own grid (ERA5-Land is aggregated to it):
+cos(latitude), on each model's own grid (ERA5-Land is aggregated to it). Glacier cells are
+excluded once the pipeline's glacier mask exists; the runs below predate it (always-white cells
+add almost nothing to these scores either way).
 
 - **Frequency pattern:** the model's white-Christmas frequency against ERA5-Land for the same
   years: mean bias, mean absolute error (all cells, and the "transition" cells where ERA5-Land is
@@ -254,60 +256,102 @@ cos(latitude), glacier cells excluded, on each model's own grid (ERA5-Land is ag
 - **Hindcast (Brier skill):** apply each model's own 1961–1990 → 1996–2025 change to ERA5-Land's
   1961–1990 probability and score it against what ERA5-Land observed in 1996–2025. The Brier
   skill score against "no change" says whether the model changes point the right way by about the
-  right amount; a reliability table checks the ensemble median. _Pending: needs ERA5-Land
-  1996–2025 (the pipeline's download had reached 1998 on 2026-11-19)._
+  right amount; a reliability table checks the ensemble median.
 
 **Selection rule** (`validation.select_models`, applied automatically before the ensemble): a model
 is dropped if its snow amount is outside 0.25–4 × ERA5-Land, its pattern correlation is below 0.80,
 or its transition-cell error exceeds 35 pp.
 
-### Interim results (ERA5-Land 1961–1990)
+### Results (ERA5-Land 1996–2025, 2026-11-19)
 
-ERA5-Land 1996–2025 is not complete yet, so the first validation uses 1961–1990, a period where
-every year is on disk; model frequencies are from each model's `historical` run for the same
-years (Christmas ± 7 days, threshold 2.5 kg m⁻²). The run on 1996–2025 replaces this table once the
-data is in. ERA5-Land median Christmas SWE at 40–60 °N: 64 kg m⁻² (at 250 kg m⁻³).
+Model frequencies are for each model's 1996–2025 baseline (historical + SSP2-4.5, Christmas ± 7
+days, threshold 2.5 kg m⁻²); ERA5-Land is Christmas Day, read from the raw downloads (the
+pipeline's cube did not exist yet). Snow amount compares 1961–1990 (ERA5-Land median Christmas
+SWE at 40–60 °N: 64 kg m⁻² at 250 kg m⁻³). The hindcast column is each model's own Brier skill.
+An interim run on 1961–1990 gave the same selection and very similar scores.
 
-| Model | Grid | Model % | ERA5-Land % | Bias (pp) | MAE (pp) | MAE transition (pp) | Corr. | SWE ratio | Used |
-|---|---|---|---|---|---|---|---|---|---|
-| ACCESS-CM2 | 144x192 | 77 | 68 | +8.8 | 10.0 | 24.9 | 0.90 | 10.15 | **no** |
-| ACCESS-ESM1-5 | 145x192 | 58 | 67 | -9.3 | 12.3 | 27.9 | 0.88 | 0.54 | yes |
-| AWI-CM-1-1-MR | 192x384 | 51 | 69 | -17.5 | 17.8 | 32.8 | 0.84 | 0.43 | yes |
-| BCC-CSM2-MR | 160x320 | 62 | 67 | -5.5 | 8.7 | 20.4 | 0.93 | 0.68 | yes |
-| CanESM5 | 64x128 | 68 | 68 | +0.0 | 7.3 | 17.4 | 0.94 | 0.62 | yes |
-| CESM2 | 192x288 | 63 | 69 | -5.9 | 8.5 | 22.1 | 0.93 | 0.62 | yes |
-| EC-Earth3 | 256x512 | 71 | 69 | +2.7 | 5.1 | 13.8 | 0.97 | 0.6 | yes |
-| EC-Earth3-Veg | 256x512 | 70 | 69 | +1.4 | 4.3 | 11.3 | 0.98 | 0.56 | yes |
-| GFDL-CM4 | 180x288 | 61 | 68 | -7.1 | 9.2 | 21.2 | 0.92 | 0.57 | yes |
-| GFDL-ESM4 | 180x288 | 57 | 68 | -10.7 | 12.2 | 26.3 | 0.89 | 0.55 | yes |
-| HadGEM3-GC31-LL | 144x192 | 61 | 68 | -7.4 | 9.0 | 20.7 | 0.93 | 0.44 | yes |
-| INM-CM4-8 | 120x180 | 56 | 69 | -13.3 | 14.7 | 29.5 | 0.86 | 0.64 | yes |
-| INM-CM5-0 | 120x180 | 57 | 69 | -12.2 | 13.8 | 27.6 | 0.86 | 0.6 | yes |
-| IPSL-CM6A-LR | 143x144 | 67 | 68 | -1.1 | 5.6 | 13.7 | 0.96 | 0.68 | yes |
-| MIROC-ES2L | 64x128 | 61 | 68 | -7.1 | 11.6 | 23.8 | 0.88 | 0.52 | yes |
-| MIROC6 | 128x256 | 62 | 68 | -6.8 | 9.9 | 23.3 | 0.91 | 0.61 | yes |
-| MPI-ESM1-2-HR | 192x384 | 53 | 69 | -15.7 | 16.1 | 29.5 | 0.85 | 0.45 | yes |
-| MPI-ESM1-2-LR | 96x192 | 55 | 68 | -13.0 | 14.2 | 27.4 | 0.86 | 0.49 | yes |
-| MRI-ESM2-0 | 160x320 | 66 | 67 | -1.0 | 6.7 | 17.4 | 0.94 | 0.66 | yes |
-| NESM3 | 96x192 | 49 | 67 | -17.7 | 18.2 | 32.9 | 0.82 | 0.18 | **no** |
-| UKESM1-0-LL | 144x192 | 62 | 68 | -6.0 | 8.8 | 19.6 | 0.92 | 0.35 | yes |
+| Model | Grid | Model % | ERA5-Land % | Bias (pp) | MAE (pp) | MAE transition (pp) | Corr. | SWE ratio | Hindcast BSS | Used |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ACCESS-CM2 | 144x192 | 74 | 65 | +8.9 | 10.2 | 24.2 | 0.91 | 10.15 | – | **no** |
+| ACCESS-ESM1-5 | 145x192 | 55 | 65 | -9.5 | 11.5 | 25.9 | 0.90 | 0.54 | -0.8 % | yes |
+| AWI-CM-1-1-MR | 192x384 | 49 | 66 | -17.2 | 17.6 | 30.9 | 0.84 | 0.43 | -0.1 % | yes |
+| BCC-CSM2-MR | 160x320 | 60 | 65 | -5.2 | 8.4 | 19.4 | 0.93 | 0.68 | +1.2 % | yes |
+| CanESM5 | 64x128 | 65 | 65 | -0.3 | 8.1 | 18.6 | 0.93 | 0.62 | -0.1 % | yes |
+| CESM2 | 192x288 | 60 | 66 | -6.2 | 8.5 | 21.6 | 0.94 | 0.62 | +0.7 % | yes |
+| EC-Earth3 | 256x512 | 68 | 66 | +2.0 | 5.1 | 12.8 | 0.97 | 0.6 | -3.1 % | yes |
+| EC-Earth3-Veg | 256x512 | 68 | 66 | +2.0 | 5.0 | 12.7 | 0.97 | 0.56 | -0.9 % | yes |
+| GFDL-CM4 | 180x288 | 58 | 65 | -7.3 | 9.4 | 21.7 | 0.93 | 0.57 | +0.2 % | yes |
+| GFDL-ESM4 | 180x288 | 57 | 65 | -8.3 | 10.1 | 21.7 | 0.92 | 0.55 | -2.2 % | yes |
+| HadGEM3-GC31-LL | 144x192 | 58 | 65 | -7.9 | 9.2 | 20.6 | 0.94 | 0.44 | +0.4 % | yes |
+| INM-CM4-8 | 120x180 | 55 | 66 | -11.1 | 13.0 | 25.7 | 0.87 | 0.64 | -2.9 % | yes |
+| INM-CM5-0 | 120x180 | 54 | 66 | -12.0 | 13.6 | 26.8 | 0.87 | 0.6 | -3.0 % | yes |
+| IPSL-CM6A-LR | 143x144 | 65 | 65 | -0.1 | 5.5 | 13.4 | 0.96 | 0.68 | -0.5 % | yes |
+| MIROC-ES2L | 64x128 | 59 | 65 | -6.4 | 11.4 | 22.3 | 0.89 | 0.52 | -0.5 % | yes |
+| MIROC6 | 128x256 | 59 | 66 | -6.3 | 9.4 | 21.6 | 0.92 | 0.61 | +1.2 % | yes |
+| MPI-ESM1-2-HR | 192x384 | 52 | 66 | -14.3 | 14.9 | 26.6 | 0.86 | 0.45 | -1.7 % | yes |
+| MPI-ESM1-2-LR | 96x192 | 53 | 65 | -12.3 | 13.6 | 24.7 | 0.87 | 0.49 | +0.5 % | yes |
+| MRI-ESM2-0 | 160x320 | 63 | 65 | -1.2 | 7.8 | 19.5 | 0.93 | 0.66 | -1.2 % | yes |
+| NESM3 | 96x192 | 46 | 64 | -17.6 | 18.4 | 31.9 | 0.82 | 0.18 | – | **no** |
+| UKESM1-0-LL | 144x192 | 59 | 65 | -6.2 | 8.6 | 18.4 | 0.93 | 0.35 | -1.9 % | yes |
 
 - **Dropped: ACCESS-CM2.** Its Christmas snowpack is ten times ERA5-Land's (median 646 kg m⁻²;
-  at Chicago often more than 1 m of snow on Christmas Day): it practically never melts, so its future
-  change is near zero by construction. Its frequency pattern alone looks fine, which is why the
-  amount check exists.
+  at Chicago often more than 1 m of snow on Christmas Day): it practically never melts, so its
+  future change is near zero by construction. Its frequency pattern alone looks fine, which is
+  why the amount check exists.
 - **Dropped: NESM3.** Snow amount 0.18 × ERA5-Land (a thin snowpack barely above the threshold),
-  together with the weakest frequency pattern of all models (correlation 0.82, −18 pp bias).
+  together with the weakest frequency pattern of all models (correlation 0.83, −18 pp bias).
 - Most models have too little Christmas snow (biases mostly −5 to −15 pp), the usual CMIP6 warm/dry
   bias over Eurasian and North American mid-latitudes. Because only each model's *change* is used,
-  a moderate bias is acceptable; the change is still computed where the model's own snow is
-  uncertain. The snow-amount ratios cluster at 0.35–0.68, i.e. ERA5-Land December snow is on
-  average lighter than the assumed 250 kg m⁻³ (or deeper than the models'), consistently.
+  a moderate bias is acceptable. The snow-amount ratios cluster at 0.35–0.68, i.e. ERA5-Land
+  December snow is on average lighter than the assumed 250 kg m⁻³ (or deeper than the models'),
+  consistently.
 - **19 models are used**, from 13 model families: six pairs share most of their code
   (EC-Earth3/-Veg, MPI-ESM1-2-HR/-LR, INM-CM4-8/5-0, GFDL-CM4/ESM4, HadGEM3/UKESM1,
   MIROC6/MIROC-ES2L). They are weighted equally for now; family weighting is a possible refinement.
 
-### Hindcast dry run (1961–1975 → 1981–1995)
+### Hindcast: 1961–1990 → 1996–2025
+
+Each model's own change from 1961–1990 to 1996–2025 (historical + SSP2-4.5, the production
+computation including its land mask), applied to ERA5-Land 1961–1990 and scored against what
+ERA5-Land observed in 1996–2025 (land 25–75 °N, 19 models):
+
+| Forecast for 1996–2025 | Brier score | Skill vs "no change" |
+|---|---|---|
+| No change (ERA5-Land 1961–1990) | 0.0567 | 0 |
+| **Ensemble median (this method)** | **0.0550** | **+3.1 %** |
+| Single models | 0.0560–0.0585 | −3.2 % to +1.2 % |
+| Perfect: the observed 1996–2025 frequency | 0.0515 | +9.2 % (the ceiling) |
+
+Mean change over the region: observed -2.7 pp, ensemble median
+-1.8 pp.
+
+What this says, in plain words:
+
+- **The method works in the right direction and is somewhat conservative.** Applied to the past,
+  it predicts the observed decline in white Christmases with about two thirds of its size, and it
+  earns about a third of the skill that even a perfect knowledge of the 1996–2025 frequencies
+  would give. The rest of a single year's outcome is weather, which no projection can predict.
+- **Only the ensemble median has skill.** Single models score between −3 % and +1 %: one model's
+  change over 30 years is largely its own year-to-year variability. That is why the published value
+  is the median of 19 models and why the 10–90 % band is wide.
+- **Reliability** of the ensemble median is good: in every 10 % bin, forecast and observed
+  frequency are within 4 pp. Observed values are a little lower in the middle bins, the same
+  conservative tendency (the real decline was slightly larger than projected).
+
+| Forecast bin | Forecast % | Observed % | Share of area |
+|---|---|---|---|
+| 0-10 % | 1.3 | 1.4 | 21.7 % |
+| 10-20 % | 14.6 | 12.9 | 4.2 % |
+| 20-30 % | 24.9 | 22.0 | 3.3 % |
+| 30-40 % | 34.9 | 32.4 | 3.0 % |
+| 40-50 % | 44.8 | 42.8 | 2.4 % |
+| 50-60 % | 55.0 | 51.2 | 2.2 % |
+| 60-70 % | 65.1 | 60.9 | 2.4 % |
+| 70-80 % | 75.3 | 72.1 | 3.0 % |
+| 80-90 % | 85.1 | 81.7 | 4.1 % |
+| 90-100 % | 99.3 | 98.9 | 53.7 % |
+
+### Earlier dry run (1961–1975 → 1981–1995)
 
 A dry run on years that are already on disk (each model's change from 1961–1975 to 1981–1995,
 applied to ERA5-Land 1961–1975, scored on 1981–1995): Brier score 0.0541 with no change,
@@ -316,7 +360,7 @@ warming happened between those periods (observed mean change −1 pp, ensemble m
 single model's change is mostly its own year-to-year noise, and only the ensemble median avoids
 adding that noise. Reliability of the ensemble median is good (forecast and observed frequency
 within 4 pp in every 10 % bin). The real test (1961–1990 → 1996–2025, about 0.5 °C more global
-warming) follows when ERA5-Land 1996–2025 is in.
+warming) is above.
 
 ### Sensitivity to threshold and day pooling
 
