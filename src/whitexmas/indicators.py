@@ -82,7 +82,7 @@ def glacier_flag(
 
 
 # --------------------------------------------------------------------------- pipeline step
-INDICATORS_VERSION = 1
+INDICATORS_VERSION = 2  # 2: min_valid_fraction in the fingerprint
 
 
 def min_valid_years(n_years: int, fraction: float = 0.8) -> int:
@@ -152,7 +152,13 @@ def fingerprint(cfg, cube_fp: str) -> str:
     h = hashlib.sha256(cube_fp.encode())
     h.update(
         cfg.section_hash(
-            "years", "threshold_cm", "definitions", "windows", "trend", "glacier"
+            "years",
+            "threshold_cm",
+            "min_valid_fraction",
+            "definitions",
+            "windows",
+            "trend",
+            "glacier",
         ).encode()
     )
     h.update(f"ind{INDICATORS_VERSION}".encode())
