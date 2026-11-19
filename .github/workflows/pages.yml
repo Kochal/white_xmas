@@ -63,10 +63,14 @@ jobs:
 
       # A repository variable cannot hold an empty value, and `vars.X || default` treats empty as
       # unset, so the root build (BASE_PATH='') is selected by the domain variable instead.
+      # The variable and Settings > Pages > Custom domain are two separate switches that must
+      # agree (a root build served on github.io, or a /white_xmas build served on the domain,
+      # has no data), so the build fails when they differ; a failed build keeps the old deployment.
       - name: Resolve base path and site URL
         run: |
           set -euo pipefail
-          domain="${PAGES_CUSTOM_DOMAIN,,}"
+          domain="${PAGES_CUSTOM_DOMAIN:-}"
+          domain="${domain,,}"
           if [ -n "$domain" ]; then
             if ! [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then
               echo "::error::PAGES_CUSTOM_DOMAIN must be a bare host name such as snowatchristmas.com, got '$domain'"
@@ -77,6 +81,17 @@ jobs:
           else
             base='/white_xmas'
             site='https://kochal.github.io/white_xmas'
+          fi
+          # Guard: the custom domain GitHub Pages serves must be the one this build is made for.
+          # If the API call itself fails (e.g. the token cannot read Pages), warn and carry on.
+          if cname=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq '.cname // ""' 2>"$RUNNER_TEMP/pages-api.err"); then
+            cname="${cname,,}"
+            if [ "$cname" != "$domain" ]; then
+              echo "::error::Settings > Pages has custom domain '${cname:-none}' but the repo variable PAGES_CUSTOM_DOMAIN is '${domain:-unset}'. Make them agree (see docs/custom-domain.md); the previous deployment stays live."
+              exit 1
+            fi
+          else
+            echo "::warning::Could not read the Pages settings, so the custom domain was not cross-checked: $(tr -s '[:space:]' ' ' < "$RUNNER_TEMP/pages-api.err")"
           fi
           echo "BASE_PATH=$base" >> "$GITHUB_ENV"
           echo "PUBLIC_SITE_URL=$site" >> "$GITHUB_ENV"
