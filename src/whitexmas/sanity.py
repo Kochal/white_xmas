@@ -66,7 +66,9 @@ def compare_legacy(new: np.ndarray, legacy: np.ndarray, land: np.ndarray, glacie
 def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir: Path) -> dict:
     import zarr
 
-    ind = zarr.open_group(str(paths.indicators), mode="r")
+    inds = {t["id"]: zarr.open_group(str(paths.indicators_for(t)), mode="r")
+            for t in cfg.thresholds}  # fmt: skip
+    ind = inds[cfg.default_threshold["id"]]
     cube = zarr.open_group(str(paths.cube), mode="r")
     years = np.asarray(cube["year"][:])
     wins = cfg.windows()
@@ -74,24 +76,27 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
     defs = cfg.definition_ids
     a, b = cfg.change_pair
     full = cfg.full_window().id
-    prob, trend, trend_p = ind["probability"], ind["trend"], ind["trend_p"]
 
     cities = []
     for name, lat, lon in CITIES:
         j, i = _cell(lat, lon)
         row = {"name": name, "lat": lat, "lon": lon, "cell": [j, i],
                "glacier": bool(ind["glacier"][j, i]), "values": {}}  # fmt: skip
-        for di, d in enumerate(defs):
-            p = prob[di, :, j, i]
-            row["values"][d] = {
-                "p_full": float(p[wid.index(full)]),
-                "p_then": float(p[wid.index(a)]),
-                "p_now": float(p[wid.index(b)]),
-                "change": float(ind["change"][di, j, i]),
-                "trend": float(trend[di, j, i]),
-                "trend_p": float(trend_p[di, j, i]),
-                "decades": {w.id: float(p[k]) for k, w in enumerate(wins) if w.kind == "decade"},
-            }
+        for tid, z in inds.items():
+            row["values"][tid] = {}
+            for di, d in enumerate(defs):
+                p = z["probability"][di, :, j, i]
+                row["values"][tid][d] = {
+                    "p_full": float(p[wid.index(full)]),
+                    "p_then": float(p[wid.index(a)]),
+                    "p_now": float(p[wid.index(b)]),
+                    "change": float(z["change"][di, j, i]),
+                    "trend": float(z["trend"][di, j, i]),
+                    "trend_p": float(z["trend_p"][di, j, i]),
+                    "decades": {
+                        w.id: float(p[k]) for k, w in enumerate(wins) if w.kind == "decade"
+                    },
+                }
         series = cube["snow_depth_cm"][:, 1, j, i]
         row["mean_depth_dec25_cm"] = float(series[series >= 0].mean())
         cities.append(row)
@@ -102,8 +107,19 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
         "windows": {"full": full, "then": a, "now": b},
         "threshold_cm": cfg.threshold_cm,
         "station_equivalent_cm": cfg.station_equivalent_cm,
+        "thresholds": [{k: t[k] for k in ("id", "cm", "default", "label")} for t in cfg.thresholds],
         "legacy_threshold_cm": LEGACY_THRESHOLD_CM,
     }
+    st = paths.products / "sanity" / "stations.json"
+    if st.exists():
+        sres = json.loads(st.read_text())
+        cal = sres["calibration"]
+        report["stations"] = {
+            "n_stations": len(sres["stations"]),
+            "n_calibration": cal["n_calibration"],
+            "best_cm": cal["best_cm"],
+            "stats": {int(k): v for k, v in cal["stats"].items()},
+        }
 
     if legacy_tif and legacy_tif.exists():
         import rasterio
@@ -162,16 +178,39 @@ def _html(r: dict, defs: list[str]) -> str:
         if r.get("station_equivalent_cm") is not None
         else ""
     )
-    rows = []
-    for c in r["cities"]:
-        for d in defs:
-            v = c["values"][d]
-            rows.append(
-                f"<tr><td>{html.escape(c['name'])}</td><td>{d}</td><td>{_fmt(v['p_full'])}</td>"
-                f"<td>{_fmt(v['p_then'])}</td><td>{_fmt(v['p_now'])}</td>"
-                f"<td>{_fmt(v['change'])}</td><td>{_fmt(v['trend'])}</td>"
-                f"<td>{_fmt(v['trend_p'], 3)}</td></tr>"
-            )
+    city_tables = ""
+    for t in r["thresholds"]:
+        rows = []
+        for c in r["cities"]:
+            for d in defs:
+                v = c["values"][t["id"]][d]
+                rows.append(
+                    f"<tr><td>{html.escape(c['name'])}</td><td>{d}</td>"
+                    f"<td>{_fmt(v['p_full'])}</td><td>{_fmt(v['p_then'])}</td>"
+                    f"<td>{_fmt(v['p_now'])}</td><td>{_fmt(v['change'])}</td>"
+                    f"<td>{_fmt(v['trend'])}</td><td>{_fmt(v['trend_p'], 3)}</td></tr>"
+                )
+        city_tables += (
+            f"<h2>Cities: {html.escape(t['label'])} (≥ {t['cm']} cm"
+            f"{', default' if t.get('default') else ''})</h2>"
+            f"<table><tr><th>city</th><th>definition</th><th>{w['full']}</th>"
+            f"<th>{w['then']}</th><th>{w['now']}</th><th>change</th><th>trend</th><th>p</th>"
+            f"</tr>{''.join(rows)}</table>"
+        )
+    stations = ""
+    if "stations" in r:
+        s_ = r["stations"]
+        srows = "".join(
+            f"<tr><td>≥ {k} cm</td><td>{v['bias_pp']:+.1f}</td><td>{v['mae_pp']:.1f}</td>"
+            f"<td>{v['agree_pct']:.1f}</td></tr>"
+            for k, v in sorted(s_["stats"].items())
+        )
+        stations = (
+            f"<h2>Station check</h2><p>{s_['n_stations']} GHCN-Daily stations, "
+            f"{s_['n_calibration']} after quality filters (see snow_variable_check.html). Best "
+            f"whole-cm threshold: {s_['best_cm']} cm.</p><table><tr><th>ERA5-Land rule</th>"
+            f"<th>mean bias (pp)</th><th>MAE (pp)</th><th>agreement (%)</th></tr>{srows}</table>"
+        )
     leg = ""
     if "legacy" in r:
         s = r["legacy"]["stats"]
@@ -201,9 +240,10 @@ maximum ≥ {r["legacy_threshold_cm"]} cm (and oceans counted as 0 %). Expect ne
 <style>body{{font:14px system-ui;margin:2em;max-width:1100px}}table{{border-collapse:collapse;
 margin:1em 0}}td,th{{border:1px solid #ccc;padding:3px 8px;text-align:right}}
 td:first-child{{text-align:left}}</style></head><body>
-<h1>White Christmas: sanity report</h1><p>Built {r["built"]}. <b>Threshold in use:
-daily-mean snow depth ≥ {r["threshold_cm"]} cm</b>{eq}. Probabilities in %, change in pp
-({w["then"]} → {w["now"]}), trend in pp/decade over {w["full"]} with Mann-Kendall p.</p>
-<table><tr><th>city</th><th>definition</th><th>{w["full"]}</th><th>{w["then"]}</th>
-<th>{w["now"]}</th><th>change</th><th>trend</th><th>p</th></tr>{"".join(rows)}</table>
+<h1>White Christmas: sanity report</h1><p>Built {r["built"]}. <b>Default threshold:
+daily-mean snow depth ≥ {r["threshold_cm"]} cm</b>{eq}; thresholds offered:
+{", ".join(f"{t['id']} ≥ {t['cm']} cm" for t in r["thresholds"])}. Probabilities in %, change in
+pp ({w["then"]} → {w["now"]}), trend in pp/decade over {w["full"]} with Mann-Kendall p.</p>
+{city_tables}
+{stations}
 {leg}</body></html>"""

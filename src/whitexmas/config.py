@@ -70,20 +70,54 @@ class Config:
         return list(range(self.first_year, self.last_year + 1))
 
     @property
-    def threshold_cm(self) -> int:
-        """Snow-depth threshold in whole centimetres.
+    def thresholds(self) -> list[dict[str, Any]]:
+        """Snow-depth thresholds (contract v1.5), default first.
 
-        The cube and the point tiles store floored whole cm, so ``cube >= T`` equals
-        ``source >= T`` only for whole T; a fractional value would silently act as the next
-        whole cm, so it is rejected.
+        Each: ``id``, ``cm`` (whole cm), ``default``, ``station_equivalent_cm`` (or None),
+        ``label``, ``description`` (with ``{cm}``/``{station_equivalent_cm}`` filled in),
+        ``layers`` ("full" | "minimal") and ``suffix`` ("" for the default, "__<id>" otherwise).
+        Without a ``thresholds`` list, a single default is built from ``threshold_cm``.
+
+        Whole cm only: the cube and point tiles store floored whole cm, so ``cube >= T`` equals
+        ``source >= T`` only for whole T; a fractional value would silently act as the next cm.
         """
-        return _whole_cm(self.raw.get("threshold_cm", 1), "threshold_cm")
+        raw = self.raw.get("thresholds")
+        if not raw:
+            raw = [{"id": "default", "cm": self.raw.get("threshold_cm", 1), "default": True,
+                    "station_equivalent_cm": self.raw.get("station_equivalent_cm")}]  # fmt: skip
+        defaults = [t for t in raw if t.get("default")] or raw[:1]
+        if len(defaults) != 1:
+            raise ValueError("exactly one threshold must be the default")
+        out = []
+        for t in sorted(raw, key=lambda t: t is not defaults[0]):
+            cm = _whole_cm(t["cm"], f"thresholds[{t['id']}].cm")
+            eq = t.get("station_equivalent_cm")
+            eq = None if eq is None else _whole_cm(eq, "station_equivalent_cm")
+            is_default = t is defaults[0]
+            fmt = {"cm": cm, "station_equivalent_cm": eq}
+            out.append({
+                "id": str(t["id"]), "cm": cm, "default": is_default,
+                "station_equivalent_cm": eq,
+                "label": str(t.get("label", f"At least {cm} cm")).format(**fmt),
+                "description": " ".join(str(t.get("description", "")).split()).format(**fmt),
+                "layers": str(t.get("layers", "full")),
+                "suffix": "" if is_default else f"__{t['id']}",
+            })  # fmt: skip
+        return out
+
+    @property
+    def default_threshold(self) -> dict[str, Any]:
+        return self.thresholds[0]
+
+    @property
+    def threshold_cm(self) -> int:
+        """The default threshold in whole centimetres (manifest.threshold_cm)."""
+        return self.default_threshold["cm"]
 
     @property
     def station_equivalent_cm(self) -> int | None:
-        """Contract v1.4: station depth that ``threshold_cm`` was calibrated to match."""
-        v = self.raw.get("station_equivalent_cm")
-        return None if v is None else _whole_cm(v, "station_equivalent_cm")
+        """Contract v1.4: station depth that the default threshold was calibrated to match."""
+        return self.default_threshold["station_equivalent_cm"]
 
     @property
     def download(self) -> dict[str, Any]:

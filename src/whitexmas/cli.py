@@ -92,12 +92,20 @@ def ingest(config: ConfigOpt = None, force: bool = False, verbose: bool = False)
 
 
 @app.command()
-def indicators(config: ConfigOpt = None, force: bool = False, verbose: bool = False) -> None:
-    """Compute probabilities, change, trend and significance for every definition and window."""
+def indicators(
+    config: ConfigOpt = None,
+    force: bool = False,
+    threshold: Annotated[
+        str | None, typer.Option(help="Only this threshold id (e.g. calibrated, raw)")
+    ] = None,
+    verbose: bool = False,
+) -> None:
+    """Compute probabilities, change, trend and significance for every definition and window,
+    for every configured snow-depth threshold."""
     from .indicators import compute_all
 
     cfg, paths = _setup(config, verbose)
-    compute_all(cfg, paths, force=force)
+    compute_all(cfg, paths, force=force, only=threshold)
 
 
 @app.command()
@@ -167,7 +175,7 @@ def build(
     if not skip_download:
         download(config=config, years=None, parallel=6, static_only=False, verbose=verbose)
     ingest(config=config, force=False, verbose=verbose)
-    indicators(config=config, force=False, verbose=verbose)
+    indicators(config=config, force=False, threshold=None, verbose=verbose)
     export(
         config=config,
         web_out=web_out,

@@ -30,13 +30,31 @@ download:
     glacier_mask: true
     lake_cover: true      # inland water: cells with lake_cover >= 0.5 are treated as water
 
-# ERA5-Land daily-mean snow depth that counts as "snow on the ground", in whole centimetres
-# (the cube and the point tiles store whole cm, so fractional values are rejected).
-threshold_cm: 1
-
-# Optional, contract v1.4: the depth at a weather station that threshold_cm was calibrated to
-# match (see `whitexmas stations`). null = threshold_cm is used as is, without calibration.
-station_equivalent_cm: null
+# Snow-depth thresholds (contract v1.5, D-17): ERA5-Land daily-mean snow depth that counts as
+# "snow on the ground", in whole centimetres (the cube and the point tiles store whole cm, so
+# fractional values are rejected). The default threshold is calibrated against weather stations
+# with `whitexmas stations`: ERA5-Land >= 5 cm matches >= 1 cm measured at a station. The raw
+# 1 cm view is offered as well. The default threshold's cm is manifest.threshold_cm.
+# layers: "full" = every layer; "minimal" = christmas_day probability for the full period and the
+# two normals, the change between the normals and the full-period trend. Non-default layer ids
+# get the suffix "__<id>".
+thresholds:
+  - id: calibrated
+    cm: 5
+    default: true
+    station_equivalent_cm: 1
+    label: Calibrated to weather stations
+    description: >-
+      At least {cm} cm of snow in ERA5-Land, which matches at least {station_equivalent_cm} cm
+      measured at weather stations (checked against 30 GHCN-Daily stations).
+    layers: full
+  - id: raw
+    cm: 1
+    label: Raw ERA5-Land, at least 1 cm
+    description: >-
+      At least {cm} cm of snow in ERA5-Land as published. Too snowy in lowlands by about
+      24 percentage points compared with weather stations.
+    layers: full
 
 # A window's probability is reported only where at least this share of its years has data.
 min_valid_fraction: 0.8

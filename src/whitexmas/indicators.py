@@ -82,7 +82,8 @@ def glacier_flag(
 
 
 # --------------------------------------------------------------------------- pipeline step
-INDICATORS_VERSION = 2  # 2: min_valid_fraction in the fingerprint
+INDICATORS_VERSION = 3  # 2: min_valid_fraction in fingerprint; 3: one store per threshold
+GLACIER_SNOW_CM = 1  # the glacier rule ("snow in every year") is the same for every threshold
 
 
 def min_valid_years(n_years: int, fraction: float = 0.8) -> int:
@@ -136,7 +137,7 @@ def compute_band(
         )
         out["trend"][di] = np.where(enough, tr, np.nan)
         out["trend_p"][di] = np.where(enough, pv, np.nan)
-    any_w = white(cube_cm, "any_day", threshold_cm)
+    any_w = white(cube_cm, "any_day", GLACIER_SNOW_CM)
     sel = (years >= full.start) & (years <= full.end)
     if require_always_white:
         out["glacier"] = glacier_flag(any_w[sel], glacier_fraction, glacier_min_fraction)
@@ -146,14 +147,15 @@ def compute_band(
     return out
 
 
-def fingerprint(cfg, cube_fp: str) -> str:
+def fingerprint(cfg, cube_fp: str, threshold_cm: int | None = None) -> str:
     import hashlib
 
     h = hashlib.sha256(cube_fp.encode())
+    t = cfg.threshold_cm if threshold_cm is None else threshold_cm
+    h.update(f"threshold={t};".encode())
     h.update(
         cfg.section_hash(
             "years",
-            "threshold_cm",
             "min_valid_fraction",
             "definitions",
             "windows",
@@ -165,8 +167,20 @@ def fingerprint(cfg, cube_fp: str) -> str:
     return h.hexdigest()[:16]
 
 
-def compute_all(cfg, paths, force: bool = False, band: int = 50):
-    """Stream over latitude bands of the cube and write ``indicators.zarr``."""
+def compute_all(cfg, paths, force: bool = False, band: int = 50, only: str | None = None):
+    """Indicators for every configured threshold (or just ``only``), one store each."""
+    outs = []
+    for t in cfg.thresholds:
+        if only and t["id"] != only:
+            continue
+        outs.append(compute_one(cfg, paths, t, force=force, band=band))
+    if only and not outs:
+        raise KeyError(f"no threshold {only!r}; have {[t['id'] for t in cfg.thresholds]}")
+    return outs
+
+
+def compute_one(cfg, paths, threshold: dict, force: bool = False, band: int = 50):
+    """Stream over latitude bands of the cube and write the threshold's indicators store."""
     import json
     import logging
     import shutil
@@ -178,12 +192,13 @@ def compute_all(cfg, paths, force: bool = False, band: int = 50):
     log = logging.getLogger(__name__)
     src = zarr.open_group(str(paths.cube), mode="r")
     cube_fp = str(src.attrs.get("input_fingerprint", ""))
-    fp = fingerprint(cfg, cube_fp)
-    out = paths.indicators
+    t_cm = int(threshold["cm"])
+    fp = fingerprint(cfg, cube_fp, t_cm)
+    out = paths.indicators_for(threshold)
     if out.exists() and not force:
         try:
             if zarr.open_group(str(out), mode="r").attrs.get("fingerprint") == fp:
-                log.info("indicators up to date (%s); skipping", fp)
+                log.info("indicators %s up to date (%s); skipping", threshold["id"], fp)
                 return out
         except Exception:  # noqa: BLE001
             pass
@@ -282,7 +297,7 @@ def compute_all(cfg, paths, force: bool = False, band: int = 50):
             defs,
             wins,
             cfg.change_pair,
-            cfg.threshold_cm,
+            t_cm,
             float(g.get("min_fraction", 0.5)),
             bool(g.get("require_always_white", True)),
             float(cfg.raw.get("min_valid_fraction", 0.8)),
@@ -299,7 +314,8 @@ def compute_all(cfg, paths, force: bool = False, band: int = 50):
             "fingerprint": fp,
             "definitions": json.dumps(defs),
             "windows": json.dumps([w.as_dict() for w in wins]),
-            "threshold_cm": cfg.threshold_cm,
+            "threshold_cm": t_cm,
+            "threshold_id": threshold["id"],
             "years": json.dumps([int(years[0]), int(years[-1])]),
         }
     )

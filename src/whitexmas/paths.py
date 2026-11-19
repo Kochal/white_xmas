@@ -62,7 +62,12 @@ class DataPaths:
 
     @property
     def indicators(self) -> Path:
+        """Indicators for the default threshold."""
         return self.interim / "indicators.zarr"
+
+    def indicators_for(self, threshold: dict) -> Path:
+        """Indicators store of a threshold: the default one, or indicators__<id>.zarr."""
+        return self.interim / f"indicators{threshold.get('suffix', '')}.zarr"
 
     @property
     def products(self) -> Path:

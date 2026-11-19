@@ -188,7 +188,11 @@ def build_places(
     definition: str,
     trend_alpha: float = 0.1,
     with_alt: bool = True,
+    extras: list[tuple[str, str, np.ndarray, np.ndarray]] | None = None,
 ) -> dict:
+    """``extras``: (then field, now field, p_then, p_now) for other thresholds (contract v1.5,
+    e.g. ``p_then_raw``/``p_now_raw``), appended after ``trend`` from the same cell."""
+    extras = extras or []
     cities = read_cities(ext_dir / "cities15000.zip")
     admin1 = read_admin1(ext_dir / "admin1CodesASCII.txt")
     langs = read_country_languages(ext_dir / "countryInfo.txt")
@@ -224,12 +228,16 @@ def build_places(
             _r1(p_now[cell]),
             _r1(trend[cell]) if sig else None,
         ]
+        for _, _, e_then, e_now in extras:
+            row += [_r1(e_then[cell]), _r1(e_now[cell])]
         rows.append(row)
     log.info("places: %d kept, %d dropped (no land cell within 2 cells)", len(rows), dropped)
     fields = ["name", "ascii", "country", "admin1"]
     if with_alt:
         fields.append("alt")
     fields += ["lat", "lon", "pop", "p_full", "p_then", "p_now", "trend"]
+    for f_then, f_now, _, _ in extras:
+        fields += [f_then, f_now]
     return {
         "fields": fields,
         "definition": definition,
