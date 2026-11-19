@@ -26,6 +26,23 @@ test('map loads, search "Munich" opens the panel with a year strip', async ({ pa
 	await expect(panel).toBeHidden();
 });
 
+test('phone: the expanded sheet can be collapsed and closed', async ({ page, isMobile }) => {
+	test.skip(!isMobile, 'bottom sheet is phone-only');
+	await page.goto('/?at=48.1374,11.5755&place=Munich');
+	const panel = page.getByTestId('place-panel');
+	await expect(panel.getByTestId('headline')).toBeVisible();
+
+	await panel.getByRole('button', { name: 'Expand details' }).click();
+	// the search card must not cover the sheet's heading or controls
+	await expect(page.getByRole('combobox', { name: 'Search for a place' })).toBeHidden();
+	await expect(panel.getByRole('heading', { name: 'Munich' })).toBeVisible();
+	await panel.getByRole('button', { name: 'Collapse details' }).click();
+	await panel.getByRole('button', { name: 'Expand details' }).click();
+	await panel.getByRole('button', { name: 'Close details' }).click(); // fails if covered
+	await expect(panel).toBeHidden();
+	await expect(page.getByRole('combobox', { name: 'Search for a place' })).toBeVisible();
+});
+
 test('a shared URL restores the selected place', async ({ page }) => {
 	await page.goto('/?layer=change&at=48.1374,11.5755&place=Munich');
 	await expect(

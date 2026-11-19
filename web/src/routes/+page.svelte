@@ -202,7 +202,7 @@
 		/>
 	{/if}
 
-	<div class="overlay-top">
+	<div class="overlay-top" class:hidden-mobile={!!at && panelExpanded}>
 		<div class="controls" class:open={controlsOpen}>
 			<h1 class="intro">How likely is a white Christmas where you live?</h1>
 			<div class="search-row">
@@ -503,6 +503,8 @@
 			left: 8px;
 			bottom: 8px;
 		}
+		/* the expanded place sheet takes the whole stage; the search card would cover it */
+		.overlay-top.hidden-mobile,
 		.overlay-legend.hidden-mobile {
 			display: none;
 		}

@@ -390,16 +390,18 @@
 		}
 		header {
 			position: relative;
-			padding-top: 18px;
+			padding-top: 22px;
 		}
+		/* touch target at least 44 px tall (WCAG 2.5.8 asks for 24) */
 		.grip {
 			display: block;
 			position: absolute;
+			z-index: 1;
 			top: 0;
 			left: 50%;
 			transform: translateX(-50%);
-			width: 72px;
-			height: 18px;
+			width: 120px;
+			height: 44px;
 			padding: 0;
 			border: 0;
 			background: transparent;
@@ -409,7 +411,7 @@
 			display: block;
 			width: 40px;
 			height: 4px;
-			margin: 7px auto 0;
+			margin: 8px auto 0;
 			border-radius: 2px;
 			background: var(--line);
 		}
