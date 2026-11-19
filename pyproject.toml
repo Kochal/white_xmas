@@ -52,6 +52,7 @@ select = ["E", "F", "I", "UP", "B", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/whitexmas/stations.py" = ["E501"]  # embedded HTML/CSS report template
+"src/whitexmas/station_report.py" = ["E501"]  # embedded HTML/CSS report template
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

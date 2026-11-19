@@ -114,7 +114,10 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
         "thresholds": [{k: t[k] for k in ("id", "cm", "default", "label")} for t in cfg.thresholds],
         "legacy_threshold_cm": LEGACY_THRESHOLD_CM,
     }
-    st = paths.products / "sanity" / "stations.json"
+    # The global (auto) station assessment if it has been run, else the D-17 list check.
+    st = paths.products / "stations" / "stations.json"
+    if not st.exists():
+        st = paths.products / "sanity" / "stations.json"
     if st.exists():
         sres = json.loads(st.read_text())
         cal = sres["calibration"]

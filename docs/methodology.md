@@ -39,8 +39,8 @@ A grid cell has a white Christmas in a given year when ERA5-Land's daily-mean sn
 
 Most people mean "snow on the ground", and weather services count that as at least 1 cm on a
 snow ruler. Taken literally, ERA5-Land at ≥ 1 cm is far too snowy: compared with weather stations
-it gives a white Christmas Day about **24 percentage points too often** (Munich 72 % against about
-34 % measured, Chicago 72 % against 39 %; see the station check below). ERA5-Land carries too much
+it gives a white Christmas Day about **20 percentage points too often** across 827 stations
+(Munich 72 % against about 34 % measured, Chicago 72 % against 39 %; see the station check below). ERA5-Land carries too much
 thin, patchy snow in the lowlands, a bias also reported in the scientific literature.
 
 So the **default threshold is 5 cm in ERA5-Land**, the whole-centimetre value that best matches
@@ -65,36 +65,146 @@ example, 30 % over 1996–2025 means 9 of those 30 Christmases were white.
 
 We compare ERA5-Land with weather stations that measured snow depth on 25 December for decades,
 from NOAA's Global Historical Climatology Network (GHCN-Daily). The check is part of the pipeline
-(`whitexmas stations`), with the station list in `config/pipeline.yaml`, and it writes a full
-report (`snow_variable_check.html`).
+(`whitexmas stations`): it picks the stations itself, applies the same rules everywhere and writes
+a full report (`snow_variable_check.html`) and a table of every station it looked at
+(`stations_global.csv`).
 
 - **Observed:** a station has a white Christmas Day when its snow depth on 25 December is at least
   1 cm. US stations report whole inches, so for them it is "at least 1 inch as rounded by the
   observer", about 1.3 cm.
-- **ERA5-Land:** the same grid cell the map uses for that location, daily-mean snow depth on
-  25 December, over exactly the years the station covers.
-- **Stations:** 46 with at least 15 overlapping years. 30 are used for the calibration. Left out:
-  9 that are white almost every year (every threshold agrees there), 4 with patchy records (often
-  reporting snow only when there is some, which inflates their frequency), and 3 whose cell is more
-  than 200 m higher or lower than the station (valley towns under a mountain cell, such as Sion).
-- **Result:**
+- **ERA5-Land:** the same grid cell the map uses for that location (the nearest land cell within
+  two cells for a coastal station whose own cell is water), daily-mean snow depth on 25 December,
+  over exactly the years the station covers.
 
-  | ERA5-Land threshold | Mean difference to stations | Typical error per station |
-  | --- | --- | --- |
-  | ≥ 1 cm (raw) | +24.3 percentage points | 24.3 pp |
-  | ≥ 4 cm | +4.6 pp | 9.0 pp |
-  | **≥ 5 cm (default)** | **+0.3 pp** | **8.1 pp** |
-  | ≥ 6 cm | −2.4 pp | 8.4 pp |
+### Which stations
 
-  At 5 cm, ERA5-Land and the station agree on white or green in 84 % of station-years. Repeating
-  the choice 30 times, each time leaving one station out, picks 5 cm 29 times and 6 cm once.
-- **Timing is not the cause:** using the morning value instead of the daily mean (06 UTC in Europe,
-  12–13 UTC in North America) changes the difference by less than one percentage point.
-- **Scope:** the 30 stations are in Europe and North America, between 40° and 70° N, from sea level
-  to 1,611 m (Denver). The calibration is not tested for high mountains, other climates or the
-  Southern Hemisphere, where 25 December is midsummer. Individual places can still be off by about
-  8 percentage points either way, more in the semi-arid interior of North America, where ERA5-Land
-  stays too snowy even at 5 cm.
+Every Northern-Hemisphere GHCN-Daily station whose snow-depth record spans at least 15 years of
+1950–2025 is a candidate: 24,049 stations with a land cell nearby. To stop dense networks (the
+United States, Canada, Sweden, Germany) from drowning out everything else, we keep **one station
+per 1° × 1° box**: the one with the longest record (then first-order and WMO stations before
+volunteer networks). If it fails a quality rule, the next one in the box is tried, up to six.
+
+The quality rules matter more than anything else here, because many snow-depth records have gaps
+that are not random:
+
+- Values flagged by NOAA's quality control are dropped.
+- **Snow depth must be reported every day the station reported anything.** A year counts only if
+  the station gave a snow depth on at least 90 % of the December days on which it reported
+  precipitation or temperature. Many records, especially those built from international weather
+  reports, give a snow depth only when snow lies and leave snow-free days blank. Counted naively,
+  such a station loses its green Christmases and looks white every year. A station where more
+  than 20 % of years fail this test is left out.
+- **Snow depth must not be filled with zeros.** A station is left out when, in more than 20 % of
+  the Decembers in which it measured at least 20 cm of snowfall, it never reported any snow on the
+  ground.
+- At least 15 usable years, covering at least 80 % of the station's span.
+- Kept in the table but left out of the statistics: stations white in 95 % of years or more (every
+  threshold agrees there), stations where both the station and ERA5-Land at 1 cm are white in
+  fewer than 5 % of years (they say nothing about the threshold), and stations more than 200 m
+  above or below the mean elevation of their cell.
+- Flagged, not dropped: coastal stations, US stations (whole inches), and stations at or above
+  1,500 m.
+
+Of 3,504 boxes with candidates, 1,563 have a station that passes the quality rules. We examined
+5,665 stations; **827 are used** (46,653 station-years), from sea level to 3,031 m and from 31° to
+70° N. The most common reasons for leaving a station out: snow depth reported only when snow lies
+(1,406), a patchy record (1,115), snow depth missing on other observing days (594), and no
+25 December snow depth at all (520).
+
+### Result
+
+| ERA5-Land threshold | Mean difference to stations | Typical error per station |
+| --- | --- | --- |
+| ≥ 1 cm (raw) | +20.2 percentage points | 20.3 pp |
+| ≥ 4 cm | +4.7 pp | 8.7 pp |
+| **≥ 5 cm (default)** | **+1.6 pp** (−0.3 to +3.9) | **8.6 pp** |
+| ≥ 6 cm | −1.2 pp | 9.3 pp |
+
+The range in brackets is a 95 % interval from a bootstrap that resamples stations in 5° × 5°
+blocks, so that neighbouring stations, which share the same weather, are not counted as
+independent evidence. At 5 cm, ERA5-Land and the station agree on white or green in 86 % of
+station-years.
+
+Two things pull the number in different directions:
+
+- **Valley towns under hilly cells.** The difference grows by about **7 percentage points for every
+  100 m** that the cell's mean elevation lies above the station (4 to 9.5 pp, comparing stations
+  within the same region). A town in a valley gets the snowier climate of the hills around it.
+  For the 611 stations within 50 m of their cell's elevation, 5 cm fits best: −1.4 pp (−2.8 to
+  +0.3), with the zero crossing at 4.5 cm.
+- **Regions differ.** Counting every region once instead of every station, ERA5-Land at 5 cm is
+  +3.2 pp (+1.8 to +4.7) too snowy, mainly because of western North America (below).
+
+### Where the calibration holds, and where it does not
+
+| Region | Stations | Difference at 5 cm (pp) | Stations at their cell's elevation |
+| --- | --- | --- | --- |
+| Eastern North America | 306 | −0.8 (−2.8 to +1.7) | −2.4 (259 stations) |
+| Great Plains & Prairies | 197 | −1.7 (−3.8 to +1.3) | −2.4 (172) |
+| Rocky Mountains & Intermountain West | 106 | **+10.7** (+5.8 to +15.0) | +11.3 (43) |
+| Western & Central Europe | 78 | **−5.3** (−6.9 to −1.7) | −6.6 (68) |
+| Pacific North America | 70 | **+12.7** (+9.8 to +16.7) | +6.1 (32) |
+| Nordic countries | 57 | +3.5 (−3.0 to +8.7) | −3.5 (31) |
+
+- **Holds:** the eastern half of North America and the Great Plains and Prairies, where most of
+  the stations are (the zero crossing lies between 4.5 and 4.7 cm), and the Nordic countries
+  within their wide uncertainty.
+- **Too snowy:** the Rocky Mountains, the Intermountain West and the Pacific side of North America.
+  Even at 8 cm ERA5-Land stays too snowy there. Part of it is the valley effect, but even
+  stations at their cell's elevation in the Rockies are 11 pp too snowy.
+- **Too green:** the lowlands of western and central Europe (mostly Germany, the Netherlands and
+  the United Kingdom), where 3 cm would match better.
+- **Is one threshold for the whole world justified?** We held out each 10° × 10° block of stations
+  in turn and chose the threshold on the others. A single global threshold chosen that way is
+  6 cm in 38 of 41 blocks, but it does worse on the held-out stations than the fixed 5 cm
+  (typical error 9.5 against 8.6 pp). A separate threshold per region would cut the typical
+  regional difference from about 6 pp to about 2 pp and the typical error per station from 8.6 to
+  8.0 pp.
+- **Scatter per station.** At a single station, ERA5-Land at 5 cm is typically about 9 percentage
+  points off either way. Chance alone (a station has only a few decades of Christmases) would
+  give about 4 pp, so most of the scatter is real local difference, not noise.
+
+### What is untested
+
+- **Most of Eurasia.** GHCN-Daily snow depth from Russia, Central Asia, China, Mongolia, Japan,
+  Korea, Turkey, Eastern Europe and the Alps comes almost entirely from international weather
+  reports that leave snow-free days blank, so those stations fail the rules above. Fewer than
+  eight usable stations remain in Alaska and northern Canada (5), Eastern Europe (4), the Alps (2),
+  Japan (1) and Korea (1); none in European Russia, Siberia, Central Asia, China, Mongolia, the
+  Tibetan Plateau, the Middle East or the Arctic islands. Of the 827 stations, 684 are in the
+  United States and Canada.
+- **High mountains** are tested only in the Rockies: 56 stations at or above 1,500 m, where
+  ERA5-Land at 5 cm is 11 pp too snowy (6 to 14).
+- **The Southern Hemisphere** is out of scope: 25 December is midsummer there.
+- Other national archives with daily snow depth and open licences could fill some gaps (Finland's
+  FMI, Japan's JMA, NSIDC's historical daily snow depth for the former Soviet Union up to 1995,
+  MeteoSwiss and several Italian Alpine services). They are not used yet.
+
+### What it means for the 5 cm default
+
+The default stays at 5 cm. Over all usable stations its mean difference is within about two
+percentage points of zero, it is the best whole-centimetre threshold for stations at their
+cell's elevation, and out of sample it beats a globally re-fitted 6 cm. Where it fails is
+regional: about 11 to 13 percentage points too snowy in western North America and about 5 too
+green in the lowlands of western and central Europe. A single threshold cannot fix that, and
+there is no usable station data for most of Eurasia.
+
+The original calibration (decision D-17) used 30 hand-picked stations in Europe and North America
+and found +0.3 pp at 5 cm. Under the rules above, 29 of those stations still qualify and give
++0.3 pp (typical error 8.1 pp). The hand-picked list is still available (`whitexmas stations
+--mode list`) and reproduces the D-17 numbers unchanged.
+
+### Station files
+
+`products/stations/stations_global.csv` has one row per examined station: id, name, latitude,
+longitude, elevation, country and US or Canadian state, region, the ERA5-Land cell and its
+elevation, years used, observed share and ERA5-Land share at every threshold, station-year counts
+at 5 cm, status, reason and flags. `stations_global.json` is a compact copy for web use (schema
+`wx-stations-v1`): `fields` names the columns, and `rows` holds one array per station that passes
+the quality rules, with `id`, `name`, `lat`, `lon`, `elev_m`, `country` (GHCN code), `region`,
+`years`, `first`, `last`, `obs_pct` (share of years with at least 1 cm observed), `era5_1cm_pct`,
+`era5_5cm_pct`, `status` (`used` or `separated`) and `flags` (`us_inches`, `coastal`,
+`high_mountain`, `elev_mismatch`).
 
 ## Periods
 
@@ -156,9 +266,12 @@ nearest land cell within two cells (about 20 km); places with no land cell that 
 - **Mountains are smoothed.** Each cell has one average height. A deep valley and the peaks around
   it share a cell, so valley towns can look snowier than they are, and summits less snowy. In the
   station check, Sion in the Rhône valley sits under a cell almost 1,000 m higher, and ERA5-Land
-  calls every Christmas there white.
+  calls every Christmas there white. Across hundreds of stations, each 100 m that a cell lies above
+  the town adds about 7 percentage points.
 - **The calibration is an average.** 5 cm matches the stations on average; at a single place the
-  difference is typically about 8 percentage points either way (see the station check).
+  difference is typically about 9 percentage points either way. ERA5-Land at 5 cm is still too
+  snowy in western North America and too green in the lowlands of western and central Europe, and
+  the calibration is untested for most of Eurasia (see the station check).
 - **The day is a UTC day.** Daily means run from midnight to midnight UTC. In Europe that is within
   an hour or two of local time, but in North America the "25 December" average runs from the
   evening of the 24th to the evening of the 25th local time, and in East Asia from the morning of
@@ -187,8 +300,10 @@ nearest land cell within two cells (about 20 km); places with no land cell that 
 - Snow-depth bias of ERA5-Land in the literature: Monteiro, D. and Morin, S. (2023), *The
   Cryosphere* 17, 3617–3660, DOI: 10.5194/tc-17-3617-2023; Stachura, G. and Ustrnul, Z. (2026),
   *The Cryosphere* 20, 2295–2315, DOI: 10.5194/tc-20-2295-2026.
-- Weather stations: Menne, M. J. et al., Global Historical Climatology Network – Daily
-  (GHCN-Daily), NOAA National Centers for Environmental Information.
+- Weather stations: Menne, M. J., I. Durre, R. S. Vose, B. E. Gleason and T. G. Houston (2012):
+  An overview of the Global Historical Climatology Network-Daily Database. *Journal of Atmospheric
+  and Oceanic Technology* 29, 897–910, DOI: 10.1175/JTECH-D-11-00103.1. Data: GHCN-Daily, NOAA
+  National Centers for Environmental Information, DOI: 10.7289/V5D21VHZ (accessed November 2026).
 - Places: GeoNames (CC BY 4.0). Borders: Natural Earth (public domain).
 
 To cite this dataset: *White Christmas: probability of snow at Christmas from ERA5-Land, 1950–2025,
