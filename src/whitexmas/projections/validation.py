@@ -144,7 +144,7 @@ def validate(
     stem = "skill" if (b0, b1) == tuple(s.baseline) else f"skill_{b0}_{b1}"
     out["period"] = [b0, b1]
     _write_table(pp.validation / stem, rows)
-    (pp.validation / f"{stem}.json").write_text(json.dumps(out, indent=1))
+    (pp.validation / f"{stem}.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     return out
 
 
@@ -223,7 +223,7 @@ def hindcast(
             "ensemble_median": round(float(np.average(med - p_then[cells], weights=wc)), 2),
         }
     pp.validation.mkdir(parents=True, exist_ok=True)
-    (pp.validation / "hindcast.json").write_text(json.dumps(out, indent=1))
+    (pp.validation / "hindcast.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     _write_table(pp.validation / "hindcast", rows)
     return out
 
@@ -298,7 +298,7 @@ def snow_amount(
         )
     out = {"period": list(period), "band": list(band), "era5_median_swe_kg_m2": era, "models": rows}
     pp.validation.mkdir(parents=True, exist_ok=True)
-    (pp.validation / "snow_amount.json").write_text(json.dumps(out, indent=1))
+    (pp.validation / "snow_amount.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     return out
 
 
@@ -325,7 +325,7 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
     sk = validation_dir / skill_file
     reference, placeholder = None, True
     if sk.exists():
-        skill = json.loads(sk.read_text())
+        skill = json.loads(sk.read_text(encoding="utf-8"))
         reference = skill.get("reference")
         placeholder = bool(skill.get("placeholder", True))
         for r in skill["models"]:
@@ -337,7 +337,7 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
                 reasons.setdefault(r["model"], []).append(f"transition-cell error {mae} pp")
     am = validation_dir / "snow_amount.json"
     if am.exists():
-        for r in json.loads(am.read_text())["models"]:
+        for r in json.loads(am.read_text(encoding="utf-8"))["models"]:
             models.add(r["model"])
             q = r.get("ratio_to_era5")
             if q is not None and not AMOUNT_RATIO_RANGE[0] <= q <= AMOUNT_RATIO_RANGE[1]:
@@ -354,7 +354,7 @@ def select_models(validation_dir: Path, skill_file: str = "skill.json") -> dict:
         "kept": sorted(models - set(reasons)),
         "dropped": {m: "; ".join(v) for m, v in sorted(reasons.items())},
     }
-    (validation_dir / "selection.json").write_text(json.dumps(out, indent=1))
+    (validation_dir / "selection.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
     return out
 
 
@@ -368,7 +368,7 @@ def dropped_models(validation_dir: Path) -> list[str]:
     f = validation_dir / "selection.json"
     if not f.exists():
         return []
-    sel = json.loads(f.read_text())
+    sel = json.loads(f.read_text(encoding="utf-8"))
     if sel.get("placeholder", True) or not sel.get("reference"):
         raise UntrustedSelection(
             f"{f} was not made against real ERA5-Land data (reference: "

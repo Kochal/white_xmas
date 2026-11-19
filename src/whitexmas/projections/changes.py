@@ -163,7 +163,11 @@ def models_ready(pp: ProjPaths, first_year: int = 1996) -> list[str]:
     done = set()
     mf = pp.cmip6 / "manifest.jsonl"
     if mf.exists():
-        done = {json.loads(x)["source_file"] for x in mf.read_text().splitlines() if x.strip()}
+        done = {
+            json.loads(x)["source_file"]
+            for x in mf.read_text(encoding="utf-8").splitlines()
+            if x.strip()
+        }
     ready = []
     for model in plan["models"]:
         need = [

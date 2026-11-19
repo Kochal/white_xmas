@@ -163,3 +163,12 @@ def test_warming_level_labels_come_from_the_models_used():
     }
     lv = warming_levels(["A", "B"], [2.0], plan)
     assert lv == [{"gwl": 2.0, "label": "+2 °C", "approx": "around the 2040s"}]
+
+
+def test_patch_manifest_writes_utf8(tmp_path):
+    m = tmp_path / "manifest.json"
+    m.write_text(json.dumps({"layers": [], "projections": {"available": False}}), encoding="utf-8")
+    block = {"available": True, "warming_levels": [{"gwl": 2.0, "label": "+2 °C", "approx": "x"}]}
+    patch_manifest(m, {"layers": [], "projections": block})
+    out = json.loads(m.read_bytes().decode("utf-8"))  # strict UTF-8, whatever the OS locale
+    assert out["projections"]["warming_levels"][0]["label"] == "+2 °C"

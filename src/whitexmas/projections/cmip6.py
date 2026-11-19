@@ -28,7 +28,7 @@ class ModelField:
 
 
 def load_plan(cmip6_root: Path) -> dict:
-    return json.loads((cmip6_root / "plan.json").read_text())
+    return json.loads((cmip6_root / "plan.json").read_text(encoding="utf-8"))
 
 
 def snw_files(

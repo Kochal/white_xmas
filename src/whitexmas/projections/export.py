@@ -140,7 +140,7 @@ def write_proj_tiles(
             names.append(name)
             total += len(data)
     index = {"format": "wx-proj-v1", "tile_deg": 5, "tiles": names}
-    (out_dir / "index.json").write_text(json.dumps(index, separators=(",", ":")))
+    (out_dir / "index.json").write_text(json.dumps(index, separators=(",", ":")), encoding="utf-8")
     return {"tiles": len(names), "bytes": total}
 
 
@@ -197,18 +197,20 @@ def manifest_fragment(paths: DataPaths) -> dict | None:
     f = ProjPaths.from_data(paths).products / "manifest_fragment.json"
     if not f.exists():
         return None
-    frag = json.loads(f.read_text())
+    frag = json.loads(f.read_text(encoding="utf-8"))
     if frag.get("placeholder"):
         return None
     return {"layers": frag["layers"], "projections": frag["projections"]}
 
 
 def patch_manifest(manifest_path: Path, fragment: dict) -> None:
-    m = json.loads(manifest_path.read_text())
+    m = json.loads(manifest_path.read_text(encoding="utf-8"))
     ids = {ly["id"] for ly in fragment["layers"]}
     m["layers"] = [ly for ly in m.get("layers", []) if ly["id"] not in ids] + fragment["layers"]
     m["projections"] = fragment["projections"]
-    manifest_path.write_text(json.dumps(m, ensure_ascii=False, separators=(",", ":")))
+    manifest_path.write_text(
+        json.dumps(m, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    )
 
 
 # --------------------------------------------------------------------------- export
@@ -347,7 +349,7 @@ def export_projections(
     pp.products.mkdir(parents=True, exist_ok=True)
     # a placeholder preview never replaces a real fragment
     frag_name = "manifest_fragment.placeholder.json" if placeholder else "manifest_fragment.json"
-    (pp.products / frag_name).write_text(json.dumps(frag, indent=1))
+    (pp.products / frag_name).write_text(json.dumps(frag, indent=1), encoding="utf-8")
     if patch and (web_out / "manifest.json").exists():
         patch_manifest(web_out / "manifest.json", frag)
         log.info("merged projections into %s", web_out / "manifest.json")
