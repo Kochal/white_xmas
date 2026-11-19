@@ -84,6 +84,41 @@ def _ext_sha(paths: DataPaths, name: str) -> str:
 
 
 # --------------------------------------------------------------------------- step 1: weights
+def compute_weights(
+    regions: list[dict], land: np.ndarray, glacier: np.ndarray, places: list[dict], a1: dict
+) -> dict:
+    """Cell fractions, nearest-cell fallbacks and population weights on the grid of ``land``
+    (any grid anchored at (-180, 90) with 0.1° cells)."""
+    from .weights import population_weights
+
+    ny, nx = land.shape
+    t0 = time.time()
+    frac = fractions(
+        regions,
+        ny,
+        nx,
+        exact_max_cells=int(a1.get("exact_max_cells", 400)),
+        k=int(a1.get("supersample", 10)),
+        k_big=int(a1.get("supersample_big", 4)),
+        big_cells=int(a1.get("supersample_big_cells", 1_000_000)),
+    )
+    t_frac = time.time() - t0
+    usable = land & ~glacier
+    radius = int(a1.get("nearest_radius", 2))
+    has_land = frac @ land.reshape(-1).astype("float64") > 0
+    # fallback only for regions without any land cell (an all-glacier region stays empty)
+    extra, picked = nearest_fallback(frac, regions, usable, radius)
+    keep = ~has_land
+    extra = sparse.csr_matrix(extra.multiply(keep[:, None]))
+    picked = {r: c for r, c in picked.items() if keep[r]}
+    pop, n_places, pop_sum = population_weights(regions, places, usable, radius)
+    return {
+        "frac": frac, "extra": extra, "pop": pop, "picked": picked, "has_land": has_land,
+        "n_places": n_places, "places_pop": pop_sum,
+        "fractions_s": t_frac, "population_s": time.time() - t0 - t_frac,
+    }  # fmt: skip
+
+
 def step_weights(cfg: Config, paths: DataPaths, force: bool = False) -> dict:
     import shapely
     import zarr
@@ -92,7 +127,6 @@ def step_weights(cfg: Config, paths: DataPaths, force: bool = False) -> dict:
     from ..external import fetch
     from .boundaries import load_regions
     from .geometry import boundaries_geojson, simplify_regions
-    from .weights import population_weights
 
     a1 = cfg.raw.get("admin1") or {}
     ap = Admin1Paths(paths)
@@ -111,27 +145,17 @@ def step_weights(cfg: Config, paths: DataPaths, force: bool = False) -> dict:
     t0 = time.time()
     regions = load_regions(paths.external, a1)
     t_load = time.time() - t0
-    frac = fractions(
-        regions,
-        exact_max_cells=int(a1.get("exact_max_cells", 400)),
-        k=int(a1.get("supersample", 10)),
-        k_big=int(a1.get("supersample_big", 4)),
-        big_cells=int(a1.get("supersample_big_cells", 1_000_000)),
-    )
-    t_frac = time.time() - t0 - t_load
-    land = np.asarray(ind["land"][:], dtype=bool)
-    glacier = np.asarray(ind["glacier"][:], dtype=bool)
-    usable = land & ~glacier
-    radius = int(a1.get("nearest_radius", 2))
-    has_land = frac @ land.reshape(-1).astype("float64") > 0
-    # fallback only for regions without any land cell (an all-glacier region stays empty)
-    extra, picked = nearest_fallback(frac, regions, usable, radius)
-    keep = np.array([not has_land[r] for r in range(len(regions))])
-    extra = sparse.csr_matrix(extra.multiply(keep[:, None]))
-    picked = {r: c for r, c in picked.items() if keep[r]}
     places = read_cities(paths.external / "cities15000.zip")
-    pop, n_places, pop_sum = population_weights(regions, places, usable, radius)
-    t_pop = time.time() - t0 - t_load - t_frac
+    w = compute_weights(
+        regions,
+        np.asarray(ind["land"][:], dtype=bool),
+        np.asarray(ind["glacier"][:], dtype=bool),
+        places,
+        a1,
+    )
+    frac, extra, pop, picked = w["frac"], w["extra"], w["pop"], w["picked"]
+    n_places, pop_sum, has_land = w["n_places"], w["places_pop"], w["has_land"]
+    t_frac, t_pop = w["fractions_s"], w["population_s"]
 
     geoms = simplify_regions(
         regions, float(a1.get("simplify_deg", 0.03)), float(a1.get("min_part_km2", 30))
@@ -257,10 +281,121 @@ def regional_projections(
     return out
 
 
+def observed_stats(
+    cfg: Config,
+    frac: sparse.csr_matrix,
+    extra: sparse.csr_matrix,
+    pop: sparse.csr_matrix,
+    wmeta: dict,
+    lat: np.ndarray,
+    land: np.ndarray,
+    glacier: np.ndarray,
+    orog: np.ndarray,
+    prob,
+    cube,
+    years: np.ndarray,
+    band: int = 50,
+) -> tuple[dict, np.ndarray, dict]:
+    """Every statistic from the observations, for any grid anchored at (-180, 90).
+
+    ``prob(threshold index, definition index, window index)`` returns a cell-probability map
+    (the indicators); ``cube`` is the snow cube ``(year, day, lat, lon)`` in whole cm.
+    Returns (arrays, years used, timings); the arrays include the weights as ``_w_area``,
+    ``_w_pop`` and the usable-cell mask as ``_usable`` for the projections.
+    """
+    t0 = time.time()
+    from ..definitions import white
+
+    a1 = cfg.raw.get("admin1") or {}
+    ny, nx = land.shape
+    nr = frac.shape[0]
+    land = land.reshape(-1)
+    glacier = glacier.reshape(-1)
+    usable = land & ~glacier
+    area = area_weights(frac, lat)
+    has_usable = frac @ usable.astype("float64") > 0
+    fallback = np.asarray(extra.sum(axis=1)).ravel() > 0
+    w_area = sparse.csr_matrix(area + extra)
+    w_pop = pop
+    frac_used = sparse.csr_matrix(frac + extra)
+    cell_km2 = np.repeat(cell_area_km2(lat), nx)
+    out: dict = {
+        "area_km2": frac @ cell_km2,
+        "land_km2": frac @ (cell_km2 * usable),
+        "cells": frac_used @ usable.astype("float64"),
+        "glacier_pct": 100 * st.weighted_mean(area, glacier.astype("float64"), land),
+        "has_land": wmeta["has_land"],
+        "has_usable": has_usable,
+        "fallback": fallback,
+        "n_places": wmeta["n_places"],
+        "places_pop": wmeta["places_pop"],
+    }
+    orog = np.asarray(orog, dtype="float64").reshape(-1)
+    out["elev_mean"] = st.weighted_mean(w_area, orog, usable)
+    out["elev_min"], out["elev_max"] = st.weighted_extremes(frac_used, orog, usable)
+
+    T = [t["id"] for t in cfg.thresholds]
+    D = cfg.definition_ids
+    wins = cfg.windows()
+    W = [w.id for w in wins]
+    share_pct = float(a1.get("spread_share_pct", 50))
+    shape = (len(T), len(D), len(W), nr)
+    for k in ("p", "p_pop", "share50", "p5", "p95"):
+        out[k] = np.full(shape, np.nan)
+    t1 = time.time()
+    for ti, tid in enumerate(T):
+        for di in range(len(D)):
+            for wi in range(len(W)):
+                v = np.asarray(prob(ti, di, wi), dtype="float64").reshape(-1)
+                out["p"][ti, di, wi] = st.weighted_mean(w_area, v, usable)
+                out["p_pop"][ti, di, wi] = st.weighted_mean(w_pop, v, usable)
+                ge = np.where(np.isfinite(v), (v >= share_pct).astype("float64"), np.nan)
+                out["share50"][ti, di, wi] = 100 * st.weighted_mean(w_area, ge, usable)
+                q = st.weighted_percentiles(w_area, v, usable, (5, 95))
+                out["p5"][ti, di, wi], out["p95"][ti, di, wi] = q
+        log.info("admin1 stats: windows of threshold %s done", tid)
+    t_windows = time.time() - t1
+
+    # yearly series: one pass over the cube in latitude bands
+    t1 = time.time()
+    keep = (years >= cfg.first_year) & (years <= cfg.last_year)
+    yrs = years[keep]
+    num = np.zeros((len(T), len(D), nr, len(yrs)))
+    den = np.zeros_like(num)
+    w_csc = w_area.tocsc()
+    for j0 in range(0, ny, band):
+        j1 = min(ny, j0 + band)
+        c0, c1 = j0 * nx, j1 * nx
+        wb = w_csc[:, c0:c1]
+        if wb.nnz == 0:
+            continue
+        block = np.asarray(cube[:, :, j0:j1, :])[keep]
+        ub = usable[c0:c1]
+        for ti, t in enumerate(cfg.thresholds):
+            for di, d in enumerate(D):
+                wht = white(block, d, t["cm"]).reshape(len(yrs), -1)
+                a, b_ = st.weighted_means_2d(wb, 100.0 * wht, ub)
+                num[ti, di] += a
+                den[ti, di] += b_
+        log.info("admin1 series: rows %d-%d of %d", j0, j1, ny)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out["series"] = np.where(den > 0, num / den, np.nan)
+    t_series = time.time() - t1
+    out["trend"] = np.full((len(T), len(D), nr), np.nan)
+    out["trend_p"] = np.full_like(out["trend"], np.nan)
+    for ti in range(len(T)):
+        for di in range(len(D)):
+            out["trend"][ti, di] = st.ols_slope_per_decade(out["series"][ti, di], yrs)
+            out["trend_p"][ti, di] = st.mann_kendall_p(out["series"][ti, di])
+
+    out["_w_area"], out["_w_pop"], out["_usable"] = w_area, w_pop, usable
+    timings = {"windows_s": round(t_windows, 1), "series_s": round(t_series, 1),
+               "observed_total_s": round(time.time() - t0, 1)}  # fmt: skip
+    return out, yrs, timings
+
+
 def step_stats(cfg: Config, paths: DataPaths, force: bool = False, band: int = 50) -> dict:
     import zarr
-
-    from ..definitions import white
 
     a1 = cfg.raw.get("admin1") or {}
     ap = Admin1Paths(paths)
@@ -284,90 +419,27 @@ def step_stats(cfg: Config, paths: DataPaths, force: bool = False, band: int = 5
 
     t0 = time.time()
     regions, frac, extra, pop, wmeta = load_weights(ap)
-    nr = len(regions)
     ind0 = inds[cfg.default_threshold["id"]]
-    lat = np.asarray(ind0["lat"][:], dtype="float64")
-    land = np.asarray(ind0["land"][:], dtype=bool).reshape(-1)
-    glacier = np.asarray(ind0["glacier"][:], dtype=bool).reshape(-1)
-    usable = land & ~glacier
-    area = area_weights(frac, lat)
-    has_usable = frac @ usable.astype("float64") > 0
-    fallback = np.asarray(extra.sum(axis=1)).ravel() > 0
-    w_area = sparse.csr_matrix(area + extra)
-    w_pop = pop
-    frac_used = sparse.csr_matrix(frac + extra)
-    cell_km2 = np.repeat(cell_area_km2(lat), NX)
-    out: dict = {
-        "area_km2": frac @ cell_km2,
-        "land_km2": frac @ (cell_km2 * usable),
-        "cells": frac_used @ usable.astype("float64"),
-        "glacier_pct": 100 * st.weighted_mean(area, glacier.astype("float64"), land),
-        "has_land": wmeta["has_land"],
-        "has_usable": has_usable,
-        "fallback": fallback,
-        "n_places": wmeta["n_places"],
-        "places_pop": wmeta["places_pop"],
-    }
-    orog = np.asarray(cube_root["orography_m"][:], dtype="float64").reshape(-1)
-    out["elev_mean"] = st.weighted_mean(w_area, orog, usable)
-    out["elev_min"], out["elev_max"] = st.weighted_extremes(frac_used, orog, usable)
-
     T = [t["id"] for t in cfg.thresholds]
+    out, yrs, timings = observed_stats(
+        cfg,
+        frac,
+        extra,
+        pop,
+        wmeta,
+        lat=np.asarray(ind0["lat"][:], dtype="float64"),
+        land=np.asarray(ind0["land"][:], dtype=bool),
+        glacier=np.asarray(ind0["glacier"][:], dtype=bool),
+        orog=np.asarray(cube_root["orography_m"][:], dtype="float64"),
+        prob=lambda ti, di, wi: inds[T[ti]]["probability"][di, wi],
+        cube=cube_root["snow_depth_cm"],
+        years=np.asarray(cube_root["year"][:]),
+        band=band,
+    )
+    w_area, w_pop, usable = out.pop("_w_area"), out.pop("_w_pop"), out.pop("_usable")
     D = cfg.definition_ids
     wins = cfg.windows()
     W = [w.id for w in wins]
-    share_pct = float(a1.get("spread_share_pct", 50))
-    shape = (len(T), len(D), len(W), nr)
-    for k in ("p", "p_pop", "share50", "p5", "p95"):
-        out[k] = np.full(shape, np.nan)
-    t1 = time.time()
-    for ti, tid in enumerate(T):
-        prob = inds[tid]["probability"]
-        for di in range(len(D)):
-            for wi in range(len(W)):
-                v = np.asarray(prob[di, wi], dtype="float64").reshape(-1)
-                out["p"][ti, di, wi] = st.weighted_mean(w_area, v, usable)
-                out["p_pop"][ti, di, wi] = st.weighted_mean(w_pop, v, usable)
-                ge = np.where(np.isfinite(v), (v >= share_pct).astype("float64"), np.nan)
-                out["share50"][ti, di, wi] = 100 * st.weighted_mean(w_area, ge, usable)
-                q = st.weighted_percentiles(w_area, v, usable, (5, 95))
-                out["p5"][ti, di, wi], out["p95"][ti, di, wi] = q
-        log.info("admin1 stats: windows of threshold %s done", tid)
-    t_windows = time.time() - t1
-
-    # yearly series: one pass over the cube in latitude bands
-    t1 = time.time()
-    years = np.asarray(cube_root["year"][:])
-    keep = (years >= cfg.first_year) & (years <= cfg.last_year)
-    yrs = years[keep]
-    cube = cube_root["snow_depth_cm"]
-    num = np.zeros((len(T), len(D), nr, len(yrs)))
-    den = np.zeros_like(num)
-    w_csc = w_area.tocsc()
-    for j0 in range(0, NY, band):
-        j1 = min(NY, j0 + band)
-        c0, c1 = j0 * NX, j1 * NX
-        wb = w_csc[:, c0:c1]
-        if wb.nnz == 0:
-            continue
-        block = np.asarray(cube[:, :, j0:j1, :])[keep]
-        ub = usable[c0:c1]
-        for ti, t in enumerate(cfg.thresholds):
-            for di, d in enumerate(D):
-                wht = white(block, d, t["cm"]).reshape(len(yrs), -1)
-                a, b_ = st.weighted_means_2d(wb, 100.0 * wht, ub)
-                num[ti, di] += a
-                den[ti, di] += b_
-        log.info("admin1 series: rows %d-%d of %d", j0, j1, NY)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        out["series"] = np.where(den > 0, num / den, np.nan)
-    t_series = time.time() - t1
-    out["trend"] = np.full((len(T), len(D), nr), np.nan)
-    out["trend_p"] = np.full_like(out["trend"], np.nan)
-    for ti in range(len(T)):
-        for di in range(len(D)):
-            out["trend"][ti, di] = st.ols_slope_per_decade(out["series"][ti, di], yrs)
-            out["trend_p"][ti, di] = st.mann_kendall_p(out["series"][ti, di])
 
     t1 = time.time()
     pinfo = {}
@@ -387,12 +459,7 @@ def step_stats(cfg: Config, paths: DataPaths, force: bool = False, band: int = 5
         "window_kinds": [w.kind for w in wins], "projections": pinfo,
     }  # fmt: skip
     np.savez_compressed(ap.stats, meta=json.dumps(meta), **out)
-    timings = {
-        "windows_s": round(t_windows, 1),
-        "series_s": round(t_series, 1),
-        "projections_s": round(t_proj, 1),
-        "total_s": round(time.time() - t0, 1),
-    }
+    timings.update(projections_s=round(t_proj, 1), total_s=round(time.time() - t0, 1))
     _save_state(ap, stats=fp, stats_timings=timings)
     log.info("admin1 stats written (%s)", timings)
     return timings

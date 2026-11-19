@@ -29,6 +29,7 @@ NX, NY = 3600, 1801
 X0, Y0 = -180.0 - RES / 2, 90.0 + RES / 2  # outer corner of cell (0, 0)
 EARTH_KM = 6371.0088
 CELL_KM2_EQ = (np.radians(RES) * EARTH_KM) ** 2  # a 0.1° cell at the equator
+MIN_FRACTION = 1e-6  # shares below this are floating-point slivers along cell edges
 
 
 def cell_area_km2(lat: np.ndarray) -> np.ndarray:
@@ -101,7 +102,7 @@ def region_fractions(geom, ny: int = NY, nx: int = NX, exact_max_cells: int = 40
             jj, ii, fr = _exact(piece, j0, j1, i0, i1)
         else:
             jj, ii, fr = _supersampled(piece, j0, j1, i0, i1, k if n <= big_cells else k_big)
-        keep = fr > 0
+        keep = fr > MIN_FRACTION
         flat = jj[keep] * nx + np.mod(ii[keep], nx)
         for c, f in zip(flat.tolist(), fr[keep].tolist(), strict=True):
             cells[c] = cells.get(c, 0.0) + f
@@ -130,9 +131,10 @@ def fractions(regions: list[dict], ny: int = NY, nx: int = NX, **kw) -> sparse.c
     return f
 
 
-def area_weights(frac: sparse.csr_matrix, lat: np.ndarray, nx: int = NX) -> sparse.csr_matrix:
+def area_weights(frac: sparse.csr_matrix, lat: np.ndarray) -> sparse.csr_matrix:
     """``F * cos(lat)`` per cell (relative area of the part of the cell inside the region)."""
-    coslat = np.repeat(np.cos(np.radians(np.asarray(lat, dtype="float64"))), nx)
+    lat = np.asarray(lat, dtype="float64")
+    coslat = np.repeat(np.cos(np.radians(lat)), frac.shape[1] // len(lat))
     return sparse.csr_matrix(frac.multiply(coslat[None, :]))
 
 

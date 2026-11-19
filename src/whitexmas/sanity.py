@@ -125,6 +125,12 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
             "stats": {int(k): v for k, v in cal["stats"].items()},
         }
 
+    from .admin1.sanity import admin1_section
+
+    a1 = admin1_section(cfg, paths, inds)
+    if a1:
+        report["admin1"] = a1
+
     if legacy_tif and legacy_tif.exists():
         import rasterio
 
@@ -215,6 +221,11 @@ def _html(r: dict, defs: list[str]) -> str:
             f"whole-cm threshold: {s_['best_cm']} cm.</p><table><tr><th>ERA5-Land rule</th>"
             f"<th>mean bias (pp)</th><th>MAE (pp)</th><th>agreement (%)</th></tr>{srows}</table>"
         )
+    admin1 = ""
+    if "admin1" in r:
+        from .admin1.sanity import admin1_html
+
+        admin1 = admin1_html(r["admin1"])
     leg = ""
     if "legacy" in r:
         s = r["legacy"]["stats"]
@@ -249,5 +260,6 @@ daily-mean snow depth ≥ {r["threshold_cm"]} cm</b>{eq}; thresholds offered:
 {", ".join(f"{t['id']} ≥ {t['cm']} cm" for t in r["thresholds"])}. Probabilities in %, change in
 pp ({w["then"]} → {w["now"]}), trend in pp/decade over {w["full"]} with Mann-Kendall p.</p>
 {city_tables}
+{admin1}
 {stations}
 {leg}</body></html>"""
