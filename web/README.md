@@ -42,29 +42,32 @@ glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 re
 
 ## Scripts
 
-| Script                           | What it does                                                                 |
-| -------------------------------- | ---------------------------------------------------------------------------- |
-| `npm run dev`                    | Dev server with the fixtures                                                 |
-| `npm run build`                  | Static build into `build/` (set `BASE_PATH=/white_xmas` for Pages)           |
-| `npm run build:fixtures`         | Build, then copy the fixtures into `build/data/`                             |
-| `npm run preview`                | Serve `build/` like GitHub Pages (base path, 404.html, range requests)       |
-| `npm run check`                  | `svelte-check` (TypeScript)                                                  |
-| `npm run lint`                   | Prettier and ESLint                                                          |
-| `npx vitest run`                 | Unit tests (data layer, decoders, statistics, fixture writer)                |
-| `npm run test:e2e`               | Playwright smoke test against the built site and fixtures (desktop + mobile) |
-| `E2E_REAL=1 npx playwright test` | The same smoke test against real data in `static/data/`                      |
-| `npm run fixtures`               | Regenerate `fixtures/data/`                                                  |
+| Script                           | What it does                                                                                                               |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                    | Dev server with the fixtures                                                                                               |
+| `npm run build`                  | Static build into `build/` (`BASE_PATH` and `PUBLIC_SITE_URL`, see below)                                                  |
+| `npm run check:build`            | Checks `build/` matches `BASE_PATH` / `PUBLIC_SITE_URL` (no stray `/white_xmas`, no `kochal.github.io` on a custom domain) |
+| `npm run build:fixtures`         | Build, then copy the fixtures into `build/data/`                                                                           |
+| `npm run preview`                | Serve `build/` like GitHub Pages (base path, 404.html, range requests)                                                     |
+| `npm run check`                  | `svelte-check` (TypeScript)                                                                                                |
+| `npm run lint`                   | Prettier and ESLint                                                                                                        |
+| `npx vitest run`                 | Unit tests (data layer, decoders, statistics, fixture writer)                                                              |
+| `npm run test:e2e`               | Playwright smoke test against the built site and fixtures (desktop + mobile)                                               |
+| `E2E_REAL=1 npx playwright test` | The same smoke test against real data in `static/data/`                                                                    |
+| `npm run fixtures`               | Regenerate `fixtures/data/`                                                                                                |
 
 On Windows Git Bash, prefix `BASE_PATH=/white_xmas` with `MSYS_NO_PATHCONV=1` so the path isn't rewritten.
+Build both ways with `BASE_PATH=/white_xmas PUBLIC_SITE_URL=https://kochal.github.io/white_xmas npm run build`
+or `BASE_PATH= PUBLIC_SITE_URL=https://snowatchristmas.com npm run build`, each followed by `npm run check:build` (it needs the site URL: `PUBLIC_SITE_URL` or `--site-url`).
 
 ## Configuration (build-time environment variables)
 
-| Variable               | Default                                         | Purpose                                     |
-| ---------------------- | ----------------------------------------------- | ------------------------------------------- |
-| `BASE_PATH`            | `''`                                            | `paths.base`; `/white_xmas` on GitHub Pages |
-| `PUBLIC_DATA_BASE`     | `<base>/data` (build), fixtures (dev)           | Base URL of the web data; may be absolute   |
-| `PUBLIC_SITE_URL`      | `https://kochal.github.io/white_xmas`           | Absolute URL for social preview tags        |
-| `PUBLIC_DOWNLOADS_URL` | `https://github.com/Kochal/white_xmas/releases` | Downloads page links                        |
+| Variable               | Default                                         | Purpose                                                                 |
+| ---------------------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
+| `BASE_PATH`            | `''`                                            | `paths.base`; `/white_xmas` on github.io, `''` on the custom domain     |
+| `PUBLIC_DATA_BASE`     | `<base>/data` (build), fixtures (dev)           | Base URL of the web data; may be absolute                               |
+| `PUBLIC_SITE_URL`      | `https://kochal.github.io/white_xmas`           | Absolute URL (with the base path) for canonical and social preview tags |
+| `PUBLIC_DOWNLOADS_URL` | `https://github.com/Kochal/white_xmas/releases` | Downloads page links                                                    |
 
 ## Performance
 
@@ -86,7 +89,8 @@ Place search over the full ~34k-place list takes about 1–10 ms per keystroke o
 
 ## Deploying to GitHub Pages
 
-`.github/workflows/pages.yml` builds the site with `BASE_PATH=/white_xmas`, downloads
+`.github/workflows/pages.yml` builds the site with `BASE_PATH=/white_xmas` (or at the domain root, see
+[docs/custom-domain.md](../docs/custom-domain.md)), downloads
 `whitexmas-web-data-<version>.tar.gz` from the release tagged `data-<version>`, unpacks it into
 `build/data/` and deploys with `actions/deploy-pages`. It runs on manual dispatch, and on pushes to
 `main` only when the repo variable `PAGES_ENABLED` is `true`.
@@ -99,7 +103,8 @@ One-time setup, done by the repository owner:
 3. Optionally, under **Settings → Secrets and variables → Actions → Variables**, set:
    - `PAGES_ENABLED` = `true` to deploy on every push to `main`;
    - `DATA_VERSION` (e.g. `2026.1`) to pin the data bundle; otherwise the latest `data-*` release is used;
-   - `PAGES_BASE_PATH` and `PAGES_SITE_URL` only for a custom domain (`''` and `https://…`).
+   - `PAGES_CUSTOM_DOMAIN` (e.g. `snowatchristmas.com`) to build for that domain's root instead of
+     `/white_xmas`; set it only as part of the cutover in [docs/custom-domain.md](../docs/custom-domain.md).
 4. Create the data release (pipeline side): tag `data-<version>` with the asset
    `whitexmas-web-data-<version>.tar.gz`.
 5. **Actions → pages → Run workflow.** Before a data release exists, untick `require_data` to
