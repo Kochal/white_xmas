@@ -285,6 +285,7 @@ def evaluate_station(
         row["obs_pct"] = 100 * float(o.mean())
         row["model_pct"] = {t: 100 * float((m >= t).mean()) for t in rules.thresholds_cm}
         row["agree_pct"] = {t: 100 * float(((m >= t) == o).mean()) for t in rules.thresholds_cm}
+        row["yearly"] = {"years": used, "obs": o.astype(int).tolist(), "model": m.tolist()}
         row["table"] = {
             t: [
                 int(((m >= t) & o).sum()),

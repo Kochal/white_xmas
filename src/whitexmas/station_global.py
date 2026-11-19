@@ -199,6 +199,7 @@ def assess(
     return {
         "n_used": len(used),
         "overall": ss.summarize(used, thresholds, FOCUS_CM, n_boot),
+        "ci_methods": ss.ci_methods(used, FOCUS_CM, n_boot),
         "region_balanced": ss.region_balanced(used, thresholds, MIN_GROUP, n_boot=n_boot),
         "groups": groups,
         "loro": ss.leave_one_region_out(used, thresholds, MIN_GROUP, FOCUS_CM),

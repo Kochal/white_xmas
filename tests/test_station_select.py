@@ -370,3 +370,45 @@ def test_classify_follows_the_rules_it_is_given(tmp_path):
     assert row["status"] == "separated"
     loose = dataclasses.replace(RULES, max_elev_diff_m=float("inf"))
     assert sel.classify(row, loose) == ("used", "")
+
+
+def _yearly_row(lat, lon, obs_years, model_years, years=range(1980, 2010), region="A"):
+    years = list(years)
+    o = np.array([y in obs_years for y in years])
+    m = np.array([10 if y in model_years else 0 for y in years])
+    table = {
+        t: [int(((m >= t) & o).sum()), int(((m < t) & o).sum()),
+            int(((m >= t) & ~o).sum()), int(((m < t) & ~o).sum())]
+        for t in (1, 5)
+    }  # fmt: skip
+    return {
+        "lat": lat, "lon": lon, "region": region, "years": len(years),
+        "obs_pct": 100 * o.mean(),
+        "model_pct": {t: 100 * float((m >= t).mean()) for t in (1, 5)},
+        "table": table,
+        "yearly": {"years": years, "obs": o.astype(int).tolist(), "model": m.tolist()},
+    }  # fmt: skip
+
+
+def test_two_way_bootstrap_widens_for_a_shared_year_signal():
+    """All stations disagree with ERA5-Land in the same few years: resampling years must see it."""
+    rng = np.random.default_rng(3)
+    shock = {1985, 1990, 1999, 2004}
+    rows = []
+    for _ in range(60):
+        lat, lon = 30 + rng.uniform(0, 40), -120 + rng.uniform(0, 100)
+        white = {y for y in range(1980, 2010) if rng.random() < 0.4}
+        rows.append(_yearly_row(lat, lon, white, white | shock))  # ERA5 white in the shock years
+    space = ss.boot_mean_bias(rows, [5], 500, deg=10.0, years=False)[:, 0]
+    both = ss.boot_mean_bias(rows, [5], 500, deg=10.0, years=True)[:, 0]
+    years_only = ss.boot_mean_bias(rows, [5], 500, deg=None, years=True)[:, 0]
+    point = float(ss.biases(rows, 5).mean())
+    assert point > 0
+    assert abs(both.mean() - point) < 1.5 and abs(years_only.mean() - point) < 1.5
+    assert both.std() > 2 * space.std()  # the year signal dominates the uncertainty
+    # rows without yearly data fall back to blocks only
+    plain = [{k: v for k, v in r.items() if k != "yearly"} for r in rows]
+    assert np.allclose(ss.boot_mean_bias(plain, [5], 50, seed=1), ss.boot_mean_bias(
+        plain, [5], 50, seed=1, years=False))  # fmt: skip
+    ci = ss.ci_methods(rows, 5, 200)
+    assert set(ci) >= {"5° blocks", "years only", "years × 10° blocks (used)"}

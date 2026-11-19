@@ -7,8 +7,9 @@ Notation, per station s and whole-cm ERA5-Land threshold T:
 - ``bias_s(T) = mod_s(T) − obs_s`` in percentage points (pp).
 
 Group statistics are means over stations (each station counts once, whatever its record length).
-Uncertainty comes from a *spatial block bootstrap*: stations are resampled in 5° × 5° blocks, so
-neighbouring stations that share weather do not count as independent evidence. Thresholds:
+Uncertainty comes from a *two-way bootstrap*: 10° × 10° blocks of stations and calendar years are
+resampled together, so neither neighbouring stations nor stations sharing the same Christmas
+weather count as independent evidence. Thresholds:
 
 - ``best_whole``: the whole-cm T with the smallest |mean bias| (ties: smaller MAE), the rule that
   chose the shipped 5 cm (D-17);
@@ -30,7 +31,7 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 
-BLOCK_DEG = 5.0
+BLOCK_DEG = 10.0
 CV_BLOCK_DEG = 10.0
 
 
@@ -127,25 +128,93 @@ def block_bootstrap(
     return _percentile_ci(vals) if len(vals) else (float("nan"), float("nan"))
 
 
+def period(rows: Sequence[dict]) -> tuple[int, int]:
+    """First and last calendar year with a usable station-year in ``rows``."""
+    ys = [y for r in rows for y in (r["yearly"]["years"][:1] + r["yearly"]["years"][-1:])]
+    return min(ys), max(ys)
+
+
+def year_weights(n_boot: int, seed: int, span: tuple[int, int]) -> np.ndarray:
+    """(n_boot, years) multinomial counts: the calendar years of ``span`` drawn with replacement."""
+    n = span[1] - span[0] + 1
+    return np.random.default_rng(seed + 7919).multinomial(n, np.full(n, 1 / n), size=n_boot)
+
+
+def _year_cube(
+    rows: Sequence[dict], thresholds: Sequence[int], span: tuple[int, int]
+) -> tuple[np.ndarray, np.ndarray]:
+    """D[s, y, t] = [ERA5-Land ≥ t] − [station white] per station-year (0 where unused), V[s, y]."""
+    ny = span[1] - span[0] + 1
+    d = np.zeros((len(rows), ny, len(thresholds)))
+    v = np.zeros((len(rows), ny))
+    tt = np.array(thresholds)
+    for k, r in enumerate(rows):
+        yr = r["yearly"]
+        idx = np.array(yr["years"], dtype=int) - span[0]
+        o = np.array(yr["obs"], dtype=float)
+        m = np.array(yr["model"], dtype=float)
+        d[k, idx] = (m[:, None] >= tt[None, :]) - o[:, None]
+        v[k, idx] = 1
+    return d, v
+
+
 def boot_mean_bias(
     rows: Sequence[dict],
     thresholds: Sequence[int],
     n_boot: int = 1000,
     seed: int = 0,
-    deg: float = BLOCK_DEG,
+    deg: float | None = BLOCK_DEG,
+    years: bool = True,
+    yw: np.ndarray | None = None,
+    span: tuple[int, int] | None = None,
 ) -> np.ndarray:
-    """(n_boot, len(thresholds)) mean biases of block-bootstrap resamples (fast path)."""
-    keys = sorted({block_of(r, deg) for r in rows})
-    kidx = {k: n for n, k in enumerate(keys)}
-    sums = np.zeros((len(keys), len(thresholds)))
-    counts = np.zeros(len(keys))
-    for r in rows:
-        k = kidx[block_of(r, deg)]
-        sums[k] += [bias(r, t) for t in thresholds]
-        counts[k] += 1
+    """(n_boot, len(thresholds)) mean biases (pp) of bootstrap resamples.
+
+    Two-way by default: ``deg``° × ``deg``° blocks of stations *and* calendar years are drawn with
+    replacement, so neither neighbouring stations nor stations sharing the same Christmas weather
+    count as independent. ``deg=None`` keeps every station (years only); ``years=False`` keeps
+    every year (blocks only, also the fallback for rows without yearly data). ``yw`` and ``span``
+    pass year draws to share between calls (the regions of one resample see the same years).
+    """
     rng = np.random.default_rng(seed)
-    pick = rng.integers(0, len(keys), (n_boot, len(keys)))
-    return sums[pick].sum(axis=1) / counts[pick].sum(axis=1)[:, None]
+    n = len(rows)
+    if deg is None:
+        cnt = np.ones((n_boot, n))
+    else:
+        keys = sorted({block_of(r, deg) for r in rows})
+        kidx = np.array([keys.index(block_of(r, deg)) for r in rows])
+        pick = rng.integers(0, len(keys), (n_boot, len(keys)))
+        per_block = np.zeros((n_boot, len(keys)))
+        np.add.at(per_block, (np.arange(n_boot)[:, None], pick), 1)
+        cnt = per_block[:, kidx]
+    if not years or not all("yearly" in r for r in rows):
+        b = np.array([[bias(r, t) for t in thresholds] for r in rows])  # (s, t)
+        return (cnt @ b) / cnt.sum(axis=1)[:, None]
+    span = span or period(rows)
+    d, v = _year_cube(rows, thresholds, span)
+    w = yw if yw is not None else year_weights(n_boot, seed, span)
+    num = np.einsum("by,syt->bst", w, d)
+    den = np.einsum("by,sy->bs", w, v)
+    ok = den > 0  # a station whose years were all left out of this resample drops out
+    sb = np.where(ok[..., None], num / np.where(ok, den, 1)[..., None], 0.0)
+    c = cnt * ok
+    return 100 * np.einsum("bs,bst->bt", c, sb) / c.sum(axis=1)[:, None]
+
+
+def ci_methods(rows: Sequence[dict], t: int, n_boot: int = 1000, seed: int = 0) -> dict:
+    """95 % interval of the mean bias at T under different resampling schemes (for the report)."""
+    schemes = {
+        "5° blocks": {"deg": 5.0, "years": False},
+        "10° blocks": {"deg": 10.0, "years": False},
+        "20° blocks": {"deg": 20.0, "years": False},
+        "years only": {"deg": None, "years": True},
+        "years × 5° blocks": {"deg": 5.0, "years": True},
+        "years × 10° blocks (used)": {"deg": 10.0, "years": True},
+    }
+    return {
+        name: _percentile_ci(boot_mean_bias(rows, [t], n_boot, seed, **kw)[:, 0])
+        for name, kw in schemes.items()
+    }
 
 
 def contingency(rows: Sequence[dict], t: int) -> dict:
@@ -245,9 +314,16 @@ def region_balanced(
         return {}
     mb = {t: float(np.mean([biases(v, t).mean() for v in groups.values()])) for t in thresholds}
     best = min(thresholds, key=lambda t: (abs(mb[t]), t))
-    # Stratified block bootstrap: blocks resampled within each region, regions kept fixed.
+    # Stratified two-way bootstrap: blocks resampled within each region (the regions themselves
+    # are kept fixed), calendar years resampled once and shared by all regions.
+    yearly = all("yearly" in r for r in rows)
+    span = period(rows) if yearly else None
+    yw = year_weights(n_boot, seed, span) if yearly else None
     boot = np.mean(
-        [boot_mean_bias(v, thresholds, n_boot, seed + k) for k, v in enumerate(groups.values())],
+        [
+            boot_mean_bias(v, thresholds, n_boot, seed + k, yw=yw, span=span)
+            for k, v in enumerate(groups.values())
+        ],
         axis=0,
     )
     ts = np.array([t_star(dict(zip(thresholds, b, strict=True))) for b in boot])
