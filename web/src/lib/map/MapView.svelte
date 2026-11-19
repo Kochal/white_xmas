@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import type { Layer } from '#lib/data/manifest.ts';
 	import type { MapView as View } from '#lib/url-state.ts';
+	import { climateLayerBefore, slimBasemap, withClimateLayer } from './basemap.ts';
 
 	interface Props {
 		dataBase: string;
@@ -36,6 +37,7 @@
 	let styleReady = $state(false);
 	let failed = $state<string | null>(null);
 	let basemapDown = $state(false);
+	let basemapLoaded = false;
 	let marker: import('maplibre-gl').Marker | null = null;
 	let maplibre: typeof import('maplibre-gl') | null = null;
 
@@ -43,27 +45,15 @@
 		return new URL(`${dataBase}/${path}`, window.location.href).href;
 	}
 
-	/**
-	 * Puts the climate layer above roads and land cover but under the basemap's boundaries
-	 * and labels, so places stay readable and roads don't clutter the data.
-	 */
-	function insertBefore(m: import('maplibre-gl').Map): string | undefined {
-		const layers = m.getStyle().layers;
-		return (
-			layers.find((l) => l.id.startsWith('boundary'))?.id ??
-			layers.find((l) => l.type === 'symbol')?.id
-		);
-	}
-
+	/** Adds (or swaps) the climate layer; a no-op when it already shows this layer. */
 	function applyLayer(m: import('maplibre-gl').Map, l: Layer | null) {
+		const url = l ? `pmtiles://${absolute(l.url)}` : null;
+		const current = m.getSource(SOURCE) as { url?: string } | undefined;
+		if (current && url && current.url === url && m.getLayer(SOURCE)) return;
 		if (m.getLayer(SOURCE)) m.removeLayer(SOURCE);
 		if (m.getSource(SOURCE)) m.removeSource(SOURCE);
-		if (!l) return;
-		m.addSource(SOURCE, {
-			type: 'raster',
-			url: `pmtiles://${absolute(l.url)}`,
-			tileSize: 256
-		});
+		if (!l || !url) return;
+		m.addSource(SOURCE, { type: 'raster', url, tileSize: 256 });
 		m.addLayer(
 			{
 				id: SOURCE,
@@ -75,15 +65,32 @@
 					'raster-fade-duration': 150
 				}
 			},
-			insertBefore(m)
+			climateLayerBefore(m.getStyle().layers)
+		);
+	}
+
+	/**
+	 * Resolves once the page has loaded and painted. MapLibre (~1 MB) is fetched only then,
+	 * so its download never competes with the first paint on slow connections.
+	 */
+	function afterFirstPaint(): Promise<void> {
+		const loaded =
+			document.readyState === 'complete'
+				? Promise.resolve()
+				: new Promise<void>((r) => window.addEventListener('load', () => r(), { once: true }));
+		return loaded.then(
+			() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
 		);
 	}
 
 	onMount(() => {
 		let disposed = false;
+		let reloadBasemap: (() => void) | null = null;
 		const dark = window.matchMedia('(prefers-color-scheme: dark)');
 		(async () => {
 			try {
+				await afterFirstPaint();
+				if (disposed) return;
 				const [ml, { Protocol }, worker] = await Promise.all([
 					import('maplibre-gl'),
 					import('pmtiles'),
@@ -96,9 +103,14 @@
 				ml.setWorkerUrl(worker.default);
 				const protocol = new Protocol();
 				ml.addProtocol('pmtiles', protocol.tile);
+				// Start with a plain background and the climate layer; the (slimmed) basemap
+				// follows once the map has loaded, so the data shows first and the first
+				// render stays cheap on phones.
 				const m = new ml.Map({
 					container,
-					style: dark.matches ? STYLE_DARK : STYLE_LIGHT,
+					style: fallbackStyle(dark.matches),
+					fadeDuration: 0,
+					pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
 					center: [view.lon, view.lat],
 					zoom: view.zoom,
 					minZoom: 1,
@@ -110,8 +122,16 @@
 				m.addControl(new ml.NavigationControl({ showCompass: false }), 'bottom-right');
 				m.on('style.load', () => {
 					styleReady = true;
+					if (m.getStyle().sources.openmaptiles) basemapLoaded = true;
 					applyLayer(m, layer);
 				});
+				const loadBasemap = () => {
+					basemapLoaded = false;
+					m.setStyle(dark.matches ? STYLE_DARK : STYLE_LIGHT, {
+						transformStyle: (prev, next) => withClimateLayer(prev, slimBasemap(next), SOURCE)
+					});
+				};
+				m.once('load', loadBasemap);
 				m.on('click', (e) => onselect(e.lngLat.lng, e.lngLat.lat));
 				// keyboard: arrows pan (built in), Enter or Space selects the point at the centre
 				m.getCanvas().addEventListener('keydown', (e) => {
@@ -124,19 +144,23 @@
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
 				});
-				const useFallback = () => {
-					if (styleReady || basemapDown) return;
-					basemapDown = true;
-					m.setStyle(fallbackStyle(dark.matches));
-				};
-				const styleTimer = setTimeout(useFallback, 12_000);
-				m.once('style.load', () => clearTimeout(styleTimer));
+				// if the basemap style can't be fetched, keep the plain background and say so
+				const styleTimer = setTimeout(() => {
+					if (!basemapLoaded) basemapDown = true;
+				}, 12_000);
 				m.on('error', (e) => {
-					// an error before the style has loaded means the basemap is unreachable
-					if (!styleReady && !(e as { sourceId?: string }).sourceId) useFallback();
+					if (!basemapLoaded && !(e as { sourceId?: string }).sourceId) {
+						basemapDown = true;
+						clearTimeout(styleTimer);
+						// setStyle failed: restore the background style with the climate layer
+						m.setStyle(fallbackStyle(dark.matches), {
+							transformStyle: (prev, next) => withClimateLayer(prev, next, SOURCE)
+						});
+					}
 					// tile errors for areas without data are expected; log the rest
 					else if (!String(e.error?.message ?? '').includes('404')) console.warn('[map]', e.error);
 				});
+				reloadBasemap = loadBasemap;
 				dark.addEventListener('change', onScheme);
 				map = m;
 			} catch (e) {
@@ -146,8 +170,8 @@
 
 		function onScheme() {
 			if (!map) return;
-			styleReady = false;
-			map.setStyle(dark.matches ? STYLE_DARK : STYLE_LIGHT);
+			if (basemapDown) map.setStyle(fallbackStyle(dark.matches));
+			else reloadBasemap?.();
 		}
 
 		return () => {

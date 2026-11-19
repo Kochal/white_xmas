@@ -52,6 +52,8 @@ export default defineConfig({
 			},
 			adapter: adapter({ fallback: '404.html' }),
 			paths: { base },
+			// inline the small page stylesheets so first paint doesn't wait for extra requests
+			inlineStyleThreshold: 20_000,
 			prerender: {
 				// The data tree arrives at deploy time (pages.yml), so links into it can't be
 				// crawled during the build.

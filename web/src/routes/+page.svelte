@@ -195,7 +195,13 @@
 />
 
 <svelte:head>
-	<link rel="preload" as="fetch" href={`${DATA_BASE}/manifest.json`} crossorigin="anonymous" />
+	<link
+		rel="preload"
+		as="fetch"
+		href={`${DATA_BASE}/manifest.json`}
+		crossorigin="anonymous"
+		fetchpriority="low"
+	/>
 	<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />
 </svelte:head>
 
