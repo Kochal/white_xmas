@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatPct, formatPp, inTenYears, latLonLabel } from './format';
+import { formatPct, formatPp, frequencyLine, inTenYears, latLonLabel } from './format';
 
 describe('inTenYears: plain-language frequency', () => {
 	it('says "about k in 10 years" in the middle of the range', () => {
@@ -14,6 +14,17 @@ describe('inTenYears: plain-language frequency', () => {
 		expect(inTenYears(97)).toBe('almost every year');
 		expect(inTenYears(100)).toBe('every year');
 		expect(inTenYears(null)).toBe('no data');
+	});
+});
+
+describe('frequencyLine', () => {
+	it('reads as a sentence for every probability, including never and every year', () => {
+		expect(frequencyLine('Snow on Christmas Day', 0)).toBe('Snow on Christmas Day: never');
+		expect(frequencyLine('Snow on Christmas Day', 63)).toBe(
+			'Snow on Christmas Day: about 6 in 10 years'
+		);
+		expect(frequencyLine('Snow on Christmas Day', 100)).toBe('Snow on Christmas Day: every year');
+		expect(frequencyLine('Snow on Christmas Day', 63)).not.toMatch(/ in (never|every|about)/);
 	});
 });
 

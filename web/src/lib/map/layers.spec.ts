@@ -171,6 +171,11 @@ describe('Future: change vs today (contract v1.2)', () => {
 		expect(availableKinds(manifest(true))).not.toContain('projection_change');
 	});
 
+	it('offers the Future tab only for definitions with projection layers', () => {
+		expect(availableKinds(manifest(true), 'christmas_day')).toContain('projection');
+		expect(availableKinds(manifest(true), 'all_three_days')).not.toContain('projection');
+	});
+
 	it('resolves the change-vs-today layer for the same warming level', () => {
 		const m = manifest();
 		const sel = normalizeSelection(m, { kind: 'projection_change', period: '2' });

@@ -8,7 +8,8 @@
 	} from '#lib/data/derive.ts';
 	import type { Manifest, Window } from '#lib/data/manifest.ts';
 	import type { CellLookup } from '#lib/data/source.ts';
-	import { formatPct, formatPp, inTenYears, latLonLabel } from '#lib/format/format.ts';
+	import { formatPct, formatPp, frequencyLine, latLonLabel } from '#lib/format/format.ts';
+	import { thresholdNote } from '#lib/data/manifest.ts';
 	import type { Selection } from '#lib/map/layers.ts';
 	import DecadeBars from './DecadeBars.svelte';
 	import FutureRanges from './FutureRanges.svelte';
@@ -132,7 +133,7 @@
 				<p class="big" data-testid="headline">{formatPct(head.p)}</p>
 				{#if head.p !== null}
 					<p>
-						<strong>{definition.label}</strong> in {inTenYears(head.p)}
+						<strong>{frequencyLine(definition.label, head.p)}</strong>
 						<span class="muted">({head.nWhite} of {head.nValid} years, {headWin?.label})</span>
 					</p>
 				{:else}
@@ -152,7 +153,12 @@
 					{/each}
 				</select>
 			</label>
-			<p class="muted small">{definition.description}</p>
+			<p class="muted small">
+				{definition.description}
+				{#if thresholdNote(manifest)}<span data-testid="threshold-note">
+						{thresholdNote(manifest)}
+					</span>{/if}
+			</p>
 
 			{#if history.glacier}
 				<p class="note">

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	ManifestError,
 	defaultDefinition,
+	thresholdNote,
 	findLayer,
 	loadManifest,
 	parseManifest,
@@ -137,6 +138,23 @@ describe('manifest helpers', () => {
 		).toBeUndefined();
 		expect(findLayer(m, { kind: 'change', definition: 'christmas_day' })?.id).toBe(
 			'change__christmas_day__1961_1990__1996_2025'
+		);
+	});
+});
+
+describe('threshold', () => {
+	it('reads threshold_cm from the manifest and explains a calibrated threshold', () => {
+		const plain = parseManifest(sampleManifest());
+		expect(plain.threshold_cm).toBe(1);
+		expect(thresholdNote(plain)).toBeNull();
+		const calibrated = parseManifest({
+			...sampleManifest(),
+			threshold_cm: 4,
+			station_equivalent_cm: 1
+		});
+		expect(calibrated.threshold_cm).toBe(4);
+		expect(thresholdNote(calibrated)).toBe(
+			'Calibrated: 4 cm in ERA5-Land ≈ 1 cm at a weather station.'
 		);
 	});
 });

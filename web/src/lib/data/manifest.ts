@@ -52,7 +52,7 @@ export interface ProjectionLayer extends LayerBase {
 	kind: 'projection';
 	warming_level: number;
 }
-/** Contract v1.2: median projected probability minus the 1996–2025 baseline, in pp. */
+/** Contract v1.2: median projected probability minus the baseline window's, in pp. */
 export interface ProjectionChangeLayer extends LayerBase {
 	kind: 'projection_change';
 	warming_level: number;
@@ -98,6 +98,11 @@ export interface Manifest {
 	build_hash: string;
 	years: { first: number; last: number };
 	threshold_cm: number;
+	/**
+	 * Optional: the station snow depth the threshold corresponds to, when the threshold is
+	 * calibrated (e.g. 4 cm in ERA5-Land ≈ 1 cm at a weather station).
+	 */
+	station_equivalent_cm?: number;
 	attribution: string;
 	definitions: Definition[];
 	windows: Window[];
@@ -180,6 +185,13 @@ export async function loadManifest(
 	const res = await fetchFn(url);
 	if (!res.ok) throw new ManifestError(`could not load ${url} (HTTP ${res.status})`);
 	return parseManifest(await res.json());
+}
+
+/** "Calibrated: 4 cm in ERA5-Land ≈ 1 cm at a weather station.", or null without calibration. */
+export function thresholdNote(m: Manifest): string | null {
+	const s = m.station_equivalent_cm;
+	if (typeof s !== 'number' || !Number.isFinite(s)) return null;
+	return `Calibrated: ${m.threshold_cm} cm in ERA5-Land ≈ ${s} cm at a weather station.`;
 }
 
 export function defaultDefinition(m: Manifest): Definition {

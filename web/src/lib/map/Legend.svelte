@@ -8,9 +8,11 @@
 		title: string;
 		subtitle: string;
 		glaciers: boolean;
+		/** Label of the projections' baseline window (manifest.projections.baseline_window). */
+		baselineLabel?: string;
 	}
 
-	let { layer, colormap, title, subtitle, glaciers }: Props = $props();
+	let { layer, colormap, title, subtitle, glaciers, baselineLabel = '' }: Props = $props();
 	let more = $state(false);
 
 	const gradient = $derived.by(() => {
@@ -51,7 +53,7 @@
 			case 'trend':
 				return 'Linear trend in percentage points (pp) per decade.';
 			case 'projection_change':
-				return 'Projected change in percentage points (pp) compared with today (1996–2025).';
+				return `Projected change in percentage points (pp) compared with today${baselineLabel ? ` (${baselineLabel})` : ''}.`;
 		}
 	});
 	// Colours come from the manifest, so the ends of the scale are named by meaning, not colour.

@@ -120,13 +120,24 @@
 					cooperativeGestures: false
 				});
 				m.addControl(new ml.NavigationControl({ showCompass: false }), 'bottom-right');
+				let styleTimer: ReturnType<typeof setTimeout> | undefined;
 				m.on('style.load', () => {
 					styleReady = true;
-					if (m.getStyle().sources.openmaptiles) basemapLoaded = true;
+					if (m.getStyle().sources.openmaptiles) {
+						// the basemap arrived, even if late: clear any "unavailable" notice
+						basemapLoaded = true;
+						basemapDown = false;
+						clearTimeout(styleTimer);
+					}
 					applyLayer(m, layer);
 				});
 				const loadBasemap = () => {
 					basemapLoaded = false;
+					// if the basemap style hasn't arrived after 12 s, say so (the data still shows)
+					clearTimeout(styleTimer);
+					styleTimer = setTimeout(() => {
+						if (!basemapLoaded) basemapDown = true;
+					}, 12_000);
 					m.setStyle(dark.matches ? STYLE_DARK : STYLE_LIGHT, {
 						transformStyle: (prev, next) => withClimateLayer(prev, slimBasemap(next), SOURCE)
 					});
@@ -144,10 +155,6 @@
 					const c = m.getCenter();
 					onviewchange({ zoom: m.getZoom(), lat: c.lat, lon: c.lng });
 				});
-				// if the basemap style can't be fetched, keep the plain background and say so
-				const styleTimer = setTimeout(() => {
-					if (!basemapLoaded) basemapDown = true;
-				}, 12_000);
 				m.on('error', (e) => {
 					if (!basemapLoaded && !(e as { sourceId?: string }).sourceId) {
 						basemapDown = true;

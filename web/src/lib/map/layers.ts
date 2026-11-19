@@ -53,11 +53,12 @@ export function futureModes(m: Manifest, definition?: string): FutureMode[] {
 
 /**
  * The tabs the controls offer. `projection` stands for the Future tab, which also covers
- * `projection_change` layers.
+ * `projection_change` layers. With a definition, Future is offered only when that definition
+ * has projection layers (contract v1: Snow on Christmas Day only).
  */
-export function availableKinds(m: Manifest): LayerKind[] {
+export function availableKinds(m: Manifest, definition?: string): LayerKind[] {
 	return KIND_ORDER.filter((k) =>
-		k === 'projection' ? futureModes(m).length > 0 : m.layers.some((l) => l.kind === k)
+		k === 'projection' ? futureModes(m, definition).length > 0 : m.layers.some((l) => l.kind === k)
 	);
 }
 

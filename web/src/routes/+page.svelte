@@ -6,6 +6,7 @@
 	import type { Place } from '#lib/data/places.ts';
 	import type { CellLookup, DataSource } from '#lib/data/source.ts';
 	import { getDataSource } from '#lib/data/client.ts';
+	import { allowsPrefetch, type ConnectionLike } from '#lib/net.ts';
 	import PlaceSearch from '#lib/components/PlaceSearch.svelte';
 	import Legend from '#lib/map/Legend.svelte';
 	import MapView from '#lib/map/MapView.svelte';
@@ -46,7 +47,9 @@
 	let mapView = $state<ReturnType<typeof MapView> | null>(null);
 
 	const layer = $derived<Layer | null>(manifest ? resolveLayer(manifest, selection) : null);
-	const kinds = $derived<LayerKind[]>(manifest ? availableKinds(manifest) : []);
+	const kinds = $derived<LayerKind[]>(
+		manifest ? availableKinds(manifest, selection.definition) : []
+	);
 	const modes = $derived(manifest ? futureModes(manifest, selection.definition) : []);
 	const tabOf = (k: LayerKind): LayerKind => (isFuture(k) ? 'projection' : k);
 	const levelNote = $derived(
@@ -74,6 +77,9 @@
 		const period = periods.find((p) => p.value === selection.period)?.label ?? '';
 		return [period, definition.short].filter(Boolean).join(' · ');
 	});
+	const baselineLabel = $derived(
+		manifest?.windows.find((w) => w.id === manifest?.projections.baseline_window)?.label ?? ''
+	);
 	const fixture = $derived(manifest?.data_version.includes('fixture') ?? false);
 	const glaciers = $derived(manifest?.glacier_style === 'hatched');
 
@@ -101,6 +107,9 @@
 	 * search index itself is built when the box gets focus.
 	 */
 	function prefetchPlaces(source: DataSource) {
+		// not for Save-Data or 2G users: the search loads places on focus anyway
+		const connection = (navigator as Navigator & { connection?: ConnectionLike }).connection;
+		if (!allowsPrefetch(connection)) return;
 		const start = () => source.places().catch(() => {});
 		const idle = (cb: () => void) =>
 			'requestIdleCallback' in window
@@ -131,6 +140,18 @@
 		lookup = null;
 		lookupError = null;
 		panelExpanded = false;
+	}
+
+	/**
+	 * Re-checks a radio group from state. If a change was refused (normalizeSelection kept the
+	 * old kind), the browser has still moved the checked mark, and Svelte won't move it back
+	 * because the state didn't change.
+	 */
+	function syncRadios(input: HTMLInputElement, isChecked: (value: string) => boolean) {
+		const group = input.form ?? input.closest('fieldset');
+		group
+			?.querySelectorAll<HTMLInputElement>(`input[type=radio][name="${input.name}"]`)
+			.forEach((r) => (r.checked = isChecked(r.value)));
 	}
 
 	function setSelection(partial: Partial<Selection>) {
@@ -274,12 +295,14 @@
 									name="kind"
 									value={k}
 									checked={tabOf(selection.kind) === k}
-									onchange={() =>
+									onchange={(e) => {
 										setSelection({
 											kind: k,
 											// keep the warming level when switching between Future views
 											period: isFuture(selection.kind) && isFuture(k) ? selection.period : ''
-										})}
+										});
+										syncRadios(e.currentTarget, (v) => v === tabOf(selection.kind));
+									}}
 								/>
 								{KIND_LABELS[k]}
 							</label>
@@ -295,7 +318,10 @@
 										name="future-mode"
 										value={k}
 										checked={selection.kind === k}
-										onchange={() => setSelection({ kind: k, period: selection.period })}
+										onchange={(e) => {
+											setSelection({ kind: k, period: selection.period });
+											syncRadios(e.currentTarget, (v) => v === selection.kind);
+										}}
 									/>
 									{FUTURE_MODE_LABELS[k]}
 								</label>
@@ -345,7 +371,14 @@
 
 	{#if manifest}
 		<div class="overlay-legend" class:hidden-mobile={!!at}>
-			<Legend {layer} {colormap} title={legendTitle} subtitle={legendSubtitle} {glaciers} />
+			<Legend
+				{layer}
+				{colormap}
+				title={legendTitle}
+				subtitle={legendSubtitle}
+				{glaciers}
+				{baselineLabel}
+			/>
 		</div>
 	{/if}
 

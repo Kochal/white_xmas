@@ -13,6 +13,10 @@ test('map loads, search "Munich" opens the panel with a year strip', async ({ pa
 	const panel = page.getByTestId('place-panel');
 	await expect(panel.getByRole('heading', { name: 'Munich' })).toBeVisible();
 	await expect(panel.getByTestId('headline')).toHaveText(/\d+%/);
+	// the headline reads as a sentence, never "… in never"
+	await expect(panel).toContainText(
+		/Snow on Christmas Day: (about \d+ in 10 years|never|rarely|almost every year|every year)/
+	);
 	const strip = panel.getByTestId('year-strip');
 	await expect(strip.getByRole('group')).toHaveAttribute('aria-label', /1950 to 2025/);
 	await expect(strip.locator('.cell')).toHaveCount(76);
@@ -116,4 +120,43 @@ test('Future: change vs today keeps the warming level and explains the hatching'
 	await expect(legend).toContainText('fewer than 2 in 3 models agree on the direction of change');
 	await expect(legend.getByTestId('legend-ends')).toContainText('fewer');
 	await expect(legend).not.toContainText(/\b(brown|blue|red)\b/i);
+});
+
+test('Future is offered only for definitions with projections, and the tabs follow the map', async ({
+	page
+}) => {
+	await page.goto('/?def=all_three_days');
+	const layersToggle = page.getByRole('button', { name: 'Map layers' });
+	if (await layersToggle.isVisible()) await layersToggle.click();
+	await expect(page.getByRole('radio', { name: 'Probability' })).toBeChecked();
+	await expect(page.getByRole('radio', { name: 'Future' })).toHaveCount(0);
+
+	await page.getByLabel('Definition').selectOption('christmas_day');
+	await page.getByRole('radio', { name: 'Future' }).check();
+	await expect(page).toHaveURL(/layer=projection/);
+	await expect(page.getByRole('radio', { name: 'Future' })).toBeChecked();
+
+	// back to a definition without projections: the map falls back, and so do the tabs
+	await page.getByLabel('Definition').selectOption('any_day');
+	await expect(page).toHaveURL(/layer=probability/);
+	await expect(page.getByRole('radio', { name: 'Probability' })).toBeChecked();
+	await expect(page.getByRole('radio', { name: 'Future' })).toHaveCount(0);
+});
+
+test('methodology shows the threshold from the data', async ({ page }) => {
+	await page.goto('/methodology/');
+	await expect(page.getByTestId('dataset-threshold')).toContainText('at least 1 cm');
+});
+
+test('a slow basemap does not leave a false "unavailable" notice', async ({ page, isMobile }) => {
+	test.skip(isMobile, 'one run is enough');
+	test.setTimeout(60_000);
+	await page.route('https://tiles.openfreemap.org/styles/**', async (route) => {
+		await new Promise((r) => setTimeout(r, 14_000));
+		await route.continue();
+	});
+	await page.goto('/');
+	const notice = page.getByRole('status').filter({ hasText: 'background map is unavailable' });
+	await expect(notice).toBeVisible({ timeout: 20_000 }); // after 12 s without a basemap
+	await expect(notice).toBeHidden({ timeout: 20_000 }); // gone once the style arrives
 });

@@ -13,6 +13,11 @@ export function inTenYears(p: number | null): string {
 
 const MINUS = '\u2212';
 
+/** The panel headline: "Snow on Christmas Day: about 6 in 10 years" (also "…: never"). */
+export function frequencyLine(label: string, p: number | null): string {
+	return `${label}: ${inTenYears(p)}`;
+}
+
 export function formatPct(p: number | null, digits = 0): string {
 	if (p === null || Number.isNaN(p)) return '–';
 	return `${p.toFixed(digits)}%`;
