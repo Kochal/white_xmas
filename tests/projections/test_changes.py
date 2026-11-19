@@ -1,6 +1,7 @@
 """The shared change computation (used by production, the hindcast and the sensitivity run)."""
 
 import numpy as np
+import pytest
 
 from whitexmas.projections.changes import masked_delta, model_land
 from whitexmas.projections.settings import ProjPaths, ProjSettings
@@ -26,29 +27,94 @@ def test_model_land_uses_the_land_fraction_not_just_data_presence(tmp_path):
     lat = np.array([45.0, -45.0])
     lon = np.array([270.0, 90.0])  # 270 E = 90 W (land), 90 E (ocean)
     n_base = np.full((2, 2), 20)  # the model reports snw everywhere, ocean included
-    land, pct = model_land(ProjPaths(tmp_path), "X", lat, lon, n_base, ProjSettings(), era5_land)
+    land, pct, uses_era5 = model_land(
+        ProjPaths(tmp_path), "X", lat, lon, n_base, ProjSettings(), era5_land
+    )
     np.testing.assert_array_equal(land, [[True, False], [False, False]])
     assert pct[0, 0] > 99
+    assert uses_era5
+
+
+def _write_attrs(path, s: ProjSettings, **extra):
+    import xarray as xr
+
+    attrs = {f"setting_{k}": str(v) for k, v in s.as_attrs().items()}
+    xr.Dataset(attrs={**attrs, **extra}).to_netcdf(path)
 
 
 def test_per_model_file_is_reused_only_with_same_estimator_and_land_mask_source(tmp_path):
-    import xarray as xr
-
     from whitexmas.projections.changes import ESTIMATOR
-    from whitexmas.projections.cli import _same_settings
+    from whitexmas.projections.cli import _reuse_file
 
     s = ProjSettings()
-    attrs = {f"setting_{k}": str(v) for k, v in s.as_attrs().items()}
     f = tmp_path / "X.nc"
-
-    def write(**extra):
-        xr.Dataset(attrs={**attrs, **extra}).to_netcdf(f)
-
-    write(estimator=ESTIMATOR, era5_land_source="indicators")
-    assert _same_settings(f, s, "indicators")
+    _write_attrs(f, s, estimator=ESTIMATOR, era5_land_source="indicators")
+    assert _reuse_file(f, s, "indicators") == "reuse"
+    _write_attrs(f, s, estimator=ESTIMATOR, era5_land_source="placeholder-legacy-geotiff")
     # built while only the placeholder baseline existed: its fallback land mask is wrong
-    assert not _same_settings(f, s, "placeholder-legacy-geotiff")
-    write(era5_land_source="indicators")  # before the common-n estimator
-    assert not _same_settings(f, s, "indicators")
-    write(estimator=ESTIMATOR)  # land mask source not recorded
-    assert not _same_settings(f, s, "indicators")
+    assert _reuse_file(f, s, "indicators") == "recompute"
+    _write_attrs(f, s, era5_land_source="indicators")  # before the common-n estimator
+    assert _reuse_file(f, s, "indicators") == "recompute"
+    _write_attrs(f, s, estimator=ESTIMATOR)  # land mask source not recorded
+    assert _reuse_file(f, s, "indicators") == "recompute"
+
+
+def test_models_with_sftlf_ignore_the_era5_land_source(tmp_path):
+    from whitexmas.projections.changes import ESTIMATOR, SFTLF
+    from whitexmas.projections.cli import _reuse_file
+
+    s = ProjSettings()
+    f = tmp_path / "X.nc"
+    _write_attrs(f, s, estimator=ESTIMATOR, era5_land_source=SFTLF)
+    for now in ("indicators", "placeholder-legacy-geotiff", "none"):
+        assert _reuse_file(f, s, now) == "reuse"
+    _write_attrs(f, s, estimator="old", era5_land_source=SFTLF)
+    assert _reuse_file(f, s, "none") == "recompute"  # its own land fraction: safe to rebuild
+
+
+def test_a_land_mask_from_the_indicators_is_never_replaced_by_a_worse_one(tmp_path):
+    from whitexmas.projections.changes import ESTIMATOR
+    from whitexmas.projections.cli import _reuse_file
+
+    s = ProjSettings()
+    f = tmp_path / "X.nc"
+    _write_attrs(f, s, estimator=ESTIMATOR, era5_land_source="indicators")
+    assert _reuse_file(f, s, "placeholder-legacy-geotiff") == "keep"
+    assert _reuse_file(f, s, "none") == "keep"
+    # even when the estimator changed: keep it (the ensemble then refuses it, loudly)
+    _write_attrs(f, s, estimator="old", era5_land_source="indicators")
+    assert _reuse_file(f, s, "none") == "keep"
+    # a placeholder mask may be replaced by the real one, never the other way round
+    _write_attrs(f, s, estimator=ESTIMATOR, era5_land_source="placeholder-legacy-geotiff")
+    assert _reuse_file(f, s, "none") == "keep"
+
+
+def test_era5_land_raises_when_the_indicators_exist_but_cannot_be_read(tmp_path):
+    from tests.synthetic import make_paths
+    from whitexmas.projections.cli import _era5_land
+
+    paths = make_paths(tmp_path)
+    paths.indicators.mkdir(parents=True)  # exists, but is no readable zarr store
+    with pytest.raises(RuntimeError, match="could not be read"):
+        _era5_land(paths)
+
+
+def test_era5_land_without_indicators_falls_back(tmp_path, monkeypatch):
+    from tests.synthetic import make_paths
+    from whitexmas.projections import baseline
+    from whitexmas.projections.cli import _era5_land
+
+    paths = make_paths(tmp_path)
+    assert not paths.indicators.exists()
+    # no placeholder GeoTIFF either: no mask, source "none"
+    monkeypatch.setattr(baseline, "LEGACY_TIF", tmp_path / "missing.tif")
+    land, source = _era5_land(paths)
+    assert land is None and source == "none"
+    # with the placeholder: its mask, labelled as the placeholder
+    fake = baseline.Baseline(
+        np.zeros((2, 2), "float32"), np.zeros((2, 2), "int16"), np.ones((2, 2), bool),
+        np.zeros((2, 2), bool), "placeholder-legacy-geotiff", "2015_2024",
+    )  # fmt: skip
+    monkeypatch.setattr(baseline, "_from_legacy", lambda tif: fake)
+    land, source = _era5_land(paths)
+    assert land.all() and source == "placeholder-legacy-geotiff"

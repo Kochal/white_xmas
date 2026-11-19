@@ -23,7 +23,7 @@ import numpy as np
 
 from ..paths import DataPaths
 from .baseline import NX, NY, load_baseline, target_grid
-from .changes import ESTIMATOR
+from .changes import ESTIMATOR, GOOD_LAND_SOURCES
 from .regrid import bilinear, fill_nearest
 from .settings import ProjPaths, ProjSettings
 from .transfer import apply_change
@@ -102,11 +102,12 @@ def build_ensemble(
     files = [f for f in files if f.stem not in exclude]
     if not files:
         raise FileNotFoundError(f"no per-model results in {pp.models}")
-    stale = []
+    stale, land_sources = [], {}
     for f in files:
         with xr.open_dataset(f) as ds:
             if ds.attrs.get("estimator") != ESTIMATOR:
                 stale.append(f.stem)
+            land_sources[f.stem] = ds.attrs.get("era5_land_source")
     if stale:
         # older files smoothed each window with its own length: a spurious change of +-0.4 in
         # every never- or always-white cell (docs/projections.md, Method step 4)
@@ -127,6 +128,16 @@ def build_ensemble(
     thresholds = set()
     for di, d in enumerate(defs):
         b = load_baseline(paths, d, s.obs_window)
+        if di == 0 and not b.placeholder:
+            bad = {m: v for m, v in land_sources.items() if v not in GOOD_LAND_SOURCES}
+            if bad:
+                # a model without sftlf whose land mask came from the placeholder (or from no
+                # mask at all) would mix ocean cells into a real ensemble
+                raise ValueError(
+                    "per-model land masks not from sftlf or the ERA5-Land indicators: "
+                    + ", ".join(f"{m} ({v})" for m, v in sorted(bad.items()))
+                    + "; re-run `whitexmas projections changes`"
+                )
         sources.add(b.source)
         thresholds.add((b.threshold_id, b.threshold_cm))
         glacier |= b.glacier

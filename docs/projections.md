@@ -226,10 +226,18 @@ the same `cmip6/` downloads but writes to `interim/projections_v2/` and
 up from the same environment variable.
 
 **Staleness guards.** Every per-model file records the change estimator (`estimator`,
-currently `jeffreys-common-n`) and where its land mask came from for models without `sftlf`
-(`era5_land_source`). `changes` recomputes a file whose estimator or land-mask source differs
-from the current one, and `ensemble` refuses per-model files made with another estimator. The
-ensemble records the estimator in its `settings` attribute.
+currently `jeffreys-common-n`) and where its land mask came from (`era5_land_source`: `sftlf`
+for the model's own land fraction, otherwise the ERA5-Land source, `indicators` or the
+placeholder).
+
+- `changes` recomputes a file whose settings or estimator differ. For a model without `sftlf`, it
+  also recomputes when the land-mask source differs.
+- It never replaces a land mask from the ERA5-Land indicators with a worse one (placeholder or
+  none) unless `--force` is given, and it stops with an error when `indicators.zarr` exists but
+  cannot be read.
+- `ensemble` refuses per-model files made with another estimator and, on the real baseline,
+  files whose land mask is neither `sftlf` nor `indicators`. It records the estimator in its
+  `settings` attribute.
 
 `run` is `changes → validate → ensemble → export`; each step also exists on its own.
 Outputs: `interim/projections/models/<model>.nc` (counts and Δ per model grid),

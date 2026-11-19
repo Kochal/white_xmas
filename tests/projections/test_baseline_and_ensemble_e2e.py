@@ -45,7 +45,9 @@ def _write_indicators(path, p_cells: dict):
                        "windows": json.dumps([{"id": "1996_2025"}])})  # fmt: skip
 
 
-def _write_model(pp: ProjPaths, name: str, delta: float, estimator: str = ESTIMATOR):
+def _write_model(
+    pp: ProjPaths, name: str, delta: float, estimator: str = ESTIMATOR, land_source="sftlf"
+):
     lat = np.linspace(-80, 80, 9)
     lon = np.arange(0.0, 360.0, 30.0)
     d = np.full((3, 1, len(lat), len(lon)), delta, "float32")
@@ -53,7 +55,10 @@ def _write_model(pp: ProjPaths, name: str, delta: float, estimator: str = ESTIMA
     xr.Dataset(
         {"delta": (("gwl", "definition", "lat", "lon"), d)},
         coords={"gwl": [1.5, 2.0, 3.0], "definition": ["christmas_day"], "lat": lat, "lon": lon},
-        attrs={"estimator": estimator} if estimator else {},
+        attrs={
+            **({"estimator": estimator} if estimator else {}),
+            **({"era5_land_source": land_source} if land_source else {}),
+        },
     ).to_netcdf(pp.models / f"{name}.nc")
 
 
@@ -110,4 +115,18 @@ def test_build_ensemble_refuses_changes_from_another_estimator(tmp_path, estimat
     _write_model(pp, "A", -1.0)
     _write_model(pp, "B", -1.0, estimator=estimator)
     with pytest.raises(ValueError, match="re-run"):
+        build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))
+
+
+@pytest.mark.parametrize("land_source", ["placeholder-legacy-geotiff", "none", None])
+def test_build_ensemble_refuses_land_masks_not_from_sftlf_or_the_indicators(tmp_path, land_source):
+    from whitexmas.projections.ensemble import build_ensemble
+
+    paths = make_paths(tmp_path)
+    _write_indicators(paths.indicators, {(400, 1900): 50.0})
+    pp = ProjPaths.from_data(paths)
+    _write_model(pp, "A", -1.0)
+    _write_model(pp, "B", -1.0, land_source="indicators")  # fine: real ERA5-Land mask
+    _write_model(pp, "C", -1.0, land_source=land_source)
+    with pytest.raises(ValueError, match="land masks"):
         build_ensemble(paths, ProjSettings(definitions=("christmas_day",)))

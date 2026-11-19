@@ -64,13 +64,28 @@ def _setup(verbose: bool, threshold: float, pool: int, exclude: list[str] | None
 
 
 def _era5_land(paths: DataPaths):
-    """ERA5-Land land mask and its source ("indicators", a placeholder, or "none")."""
-    from .baseline import load_baseline
+    """ERA5-Land land mask and its source ("indicators", a placeholder, or "none").
 
+    Only "no indicators at all" falls back (to the placeholder, else to no mask). When
+    ``indicators.zarr`` exists but cannot be read, this raises: carrying on would rebuild the
+    per-model files of models without sftlf with a worse land mask."""
+    from .baseline import load_baseline
+    from .changes import NO_ERA5_LAND
+
+    if paths.indicators.exists():
+        try:
+            b = load_baseline(paths, "christmas_day")
+        except Exception as e:
+            raise RuntimeError(
+                f"{paths.indicators} exists but could not be read ({e}); not building land "
+                "masks from a lower-grade source"
+            ) from e
+        return b.land, b.source
     try:
         b = load_baseline(paths, "christmas_day")
-    except Exception:  # noqa: BLE001 - only used where a model has no sftlf
-        return None, "none"
+    except Exception:  # noqa: BLE001 - no indicators and no placeholder either
+        log.warning("no ERA5-Land land mask at all: models without sftlf use cells with data")
+        return None, NO_ERA5_LAND
     if b.placeholder:
         log.warning(
             "ERA5-Land land mask from the placeholder baseline: models without sftlf get a "
@@ -98,32 +113,55 @@ def changes(
     if skipped:
         typer.echo(f"downloads incomplete, skipped: {', '.join(skipped)}")
     land, land_source = _era5_land(paths)
+    kept = []
     for m in todo:
         out = pp.models / f"{m}.nc"
-        if out.exists() and not force and _same_settings(out, s, land_source):
+        what = "recompute" if force or not out.exists() else _reuse_file(out, s, land_source)
+        if what == "reuse":
+            continue
+        if what == "keep":
+            kept.append(m)
             continue
         compute_model(pp, m, s, land, land_source)
     typer.echo(f"{len(todo)} models: {', '.join(todo)}")
+    if kept:
+        typer.echo(
+            f"kept (land mask from the ERA5-Land indicators, now only {land_source!r}; pass "
+            f"--force to rebuild anyway): {', '.join(kept)}"
+        )
 
 
-def _same_settings(path: Path, s: ProjSettings, era5_land_source: str) -> bool:
-    """A per-model file can be reused only if it was built with the same settings, the
-    current change estimator, and the same ERA5-Land land mask (the fallback for models without
-    sftlf: a file built while only the placeholder baseline existed has a wrong land mask)."""
+def _reuse_file(path: Path, s: ProjSettings, era5_land_source: str) -> str:
+    """What to do with an existing per-model file: "reuse", "recompute" or "keep".
+
+    A file is reused when it was built with the same settings and the current change estimator
+    and, for a model that takes its land mask from ERA5-Land (no matching sftlf), from the same
+    source: a file built while only the placeholder baseline existed has a wrong land mask.
+    "keep": the file would have to be rebuilt, but its land mask came from the real ERA5-Land
+    indicators and only a lower-grade source is available now, so it is not replaced
+    (``--force`` does)."""
     import xarray as xr
 
-    from .changes import ESTIMATOR
+    from .changes import ESTIMATOR, SFTLF, land_source_rank
 
     with xr.open_dataset(path) as ds:
-        return (
-            all(
-                ds.attrs.get(f"setting_{k}") == str(v)
-                for k, v in s.as_attrs().items()
-                if k != "exclude"
-            )
-            and ds.attrs.get("estimator") == ESTIMATOR
-            and ds.attrs.get("era5_land_source") == era5_land_source
-        )
+        attrs = dict(ds.attrs)
+    file_source = attrs.get("era5_land_source")
+    uses_era5 = file_source != SFTLF  # unknown (older files) counts as using it
+    same = (
+        all(attrs.get(f"setting_{k}") == str(v) for k, v in s.as_attrs().items() if k != "exclude")
+        and attrs.get("estimator") == ESTIMATOR
+        and (not uses_era5 or file_source == era5_land_source)
+    )
+    if same:
+        return "reuse"
+    if uses_era5 and land_source_rank(file_source) > land_source_rank(era5_land_source):
+        log.warning(
+            "%s: not rebuilt: its land mask comes from %r, only %r is available now",
+            path.name, file_source, era5_land_source,
+        )  # fmt: skip
+        return "keep"
+    return "recompute"
 
 
 @app.command()
