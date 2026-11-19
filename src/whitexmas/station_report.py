@@ -18,6 +18,9 @@ E = html.escape
 NAN = float("nan")
 
 # Diverging bins for the bias (pp): blue = ERA5-Land too green, red = too snowy, grey = close.
+# Stations used by the original D-17 calibration (list mode, products/sanity/), a historical count.
+D17_N_USED = 30
+
 BIAS_EDGES = [-30, -15, -5, 5, 15, 30]
 BIAS_LABELS = ["< −30", "−30 to −15", "−15 to −5", "−5 to 5", "5 to 15", "15 to 30", "> 30"]
 BIAS_VARS = ["--b3", "--b2", "--b1", "--n0", "--r1", "--r2", "--r3"]
@@ -357,6 +360,7 @@ def render(res: dict, paths=None) -> str:
     fl = st.get("flat", {})
     flo, flrb, flreg = fl.get("overall", {}), fl.get("region_balanced", {}), fl.get("regions", {})
     wr = st.get("elevation_within_region", {})
+    all_mae_best = min(thresholds, key=lambda k: (ov["mae_pp"][k], k))
     flat_mae_best = min(thresholds, key=lambda k: flo["mae_pp"][k]) if flo.get("mae_pp") else "–"
 
     def flat_txt(k: str) -> str:
@@ -462,7 +466,9 @@ At the raw 1 cm: {ov["bias_pp"][1]:+.1f} pp.</li>
 <li>The whole-cm threshold with the smallest mean bias is <b>{ov["best_whole_cm"]} cm</b>
 (every station once) and <b>{rb.get("best_whole_cm", "–")} cm</b> (every region once); the bias
 crosses zero at {_tstar(ov["t_star_cm"])} cm {_ci(ov.get("t_star_ci"))} and
-{_tstar(rb.get("t_star_cm", NAN))} cm {_ci(rb.get("t_star_ci"))} respectively.</li>
+{_tstar(rb.get("t_star_cm", NAN))} cm {_ci(rb.get("t_star_ci"))} respectively. Judged per station
+instead, the smallest MAE is at <b>{all_mae_best} cm</b>, and the median bias at {t} cm is
+{_f(ov["median_bias_pp"].get(t), 1, True)} pp.</li>
 <li><b>Much of that excess sits at stations lying below their cell.</b> For the
 {flo.get("n", 0)} stations within 50 m of their ERA5-Land cell's mean elevation, the bias at {t} cm
 is <b>{_f(flo.get("bias_pp", {}).get(t), 1, True)} pp</b> {_ci(flo.get("bias_ci", {}).get(t))}
@@ -470,7 +476,7 @@ is <b>{_f(flo.get("bias_pp", {}).get(t), 1, True)} pp</b> {_ci(flo.get("bias_ci"
 {_ci(flrb.get("bias_ci", {}).get(t))}), crossing zero at {_tstar(flo.get("t_star_cm", NAN))} cm
 {_ci(flo.get("t_star_ci"))}. Within a region, the bias is larger by
 {_f(wr.get("slope_pp_per_100m"), 1, True)} pp {_ci(wr.get("slope_ci"))} for every 100 m the cell
-lies above the station (an association, consistent with a valley town sharing a cell with
+lies above the station (interval from 10° station blocks, years not resampled; an association, consistent with a valley town sharing a cell with
 higher, snowier ground). For those stations the best whole cm by MAE is {flat_mae_best} cm.
 So the best single threshold depends on which stations are taken to represent their
 cell.</li>
@@ -608,7 +614,8 @@ its own (exact McNemar test, p &lt; 0.05; about 5 % would be by chance alone).</
 <p>Bias at {t} cm against the elevation of the ERA5-Land cell minus the station, over
 {el.get("n", 0)} stations that pass the data-quality rules (including those separated for a
 mismatch): {_f(el.get("slope_pp_per_100m"), 2, True)} pp per 100 m {_ci(el.get("slope_ci"), 2)},
-r = {_f(el.get("r"), 2)}. Within regions, over the stations used (all within the
+r = {_f(el.get("r"), 2)}. The two slope intervals in this section resample 10° blocks of stations
+only, not years: a slope across stations is little affected by a year shared by all of them. Within regions, over the stations used (all within the
 ±{res["rules"]["max_elev_diff_m"]:g} m limit):
 {_f(wr.get("slope_pp_per_100m"), 1, True)} pp per 100 m {_ci(wr.get("slope_ci"))}. A cell higher
 than its station is usually colder and snowier than the station's site, so a positive slope is
@@ -643,7 +650,7 @@ at 1 cm and {_f(any3.get("bias_pp", {}).get(t), 1, True)} pp at {t} cm (MAE
 {_f(any3.get("mae_pp", {}).get(t))} pp). Context only: the default definition is 25 December.</p>
 
 <h2>The earlier hand-picked list under these rules</h2>
-<p>Of the {d17.get("n", 0)} listed stations (30 used by D-17), {
+<p>Of the {d17.get("n", 0)} listed stations ({D17_N_USED} used by D-17), {
         d17.get("n_used", 0)
     } pass the new rules; their mean
 bias at {t} cm is {_f(d17s.get("bias_pp", {}).get(t), 1, True)} pp (MAE

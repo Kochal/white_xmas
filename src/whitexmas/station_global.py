@@ -33,6 +33,7 @@ log = logging.getLogger(__name__)
 
 FOCUS_CM = 5  # the shipped calibrated threshold (D-17); only used to label the report
 MIN_GROUP = 8  # stations a group needs before its own threshold is reported
+N_BOOT = 2000  # bootstrap replicates: enough that one-decimal interval bounds do not jitter
 
 
 class CubeColumns:
@@ -256,7 +257,7 @@ def list_set(cfg: Config, paths: DataPaths, cube: CubeColumns) -> list[dict]:
 def assess(
     rows: list[dict],
     thresholds: list[int],
-    n_boot: int = 1000,
+    n_boot: int = N_BOOT,
     rules: sel.Rules | None = None,
     alt_rows: list[dict] | None = None,
 ) -> dict:
@@ -525,7 +526,7 @@ def _clean(o):
     return o
 
 
-def run(cfg: Config, paths: DataPaths, out_dir: Path | None = None, n_boot: int = 1000) -> dict:
+def run(cfg: Config, paths: DataPaths, out_dir: Path | None = None, n_boot: int = N_BOOT) -> dict:
     from .station_report import render
 
     sc = cfg.raw["stations"]
