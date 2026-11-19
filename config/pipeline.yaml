@@ -1,0 +1,183 @@
+# White Christmas pipeline configuration.
+# Every step reads this file; changing a value invalidates the steps that depend on it.
+
+years:
+  first: 1950
+  last: 2025
+
+# ERA5-Land grid (0.1 degree, global). Cell centres: lon = -180 + 0.1 i, lat = 90 - 0.1 j.
+grid:
+  resolution: 0.1
+  nx: 3600
+  ny: 1801
+
+download:
+  dataset: derived-era5-land-daily-statistics
+  variable: snow_depth
+  daily_statistic: daily_mean
+  time_zone: utc+00:00
+  frequency: 1_hourly
+  month: 12
+  days: [24, 25, 26]
+  # One request per year; the CDS limits request size, so a year can be split by day.
+  split_by_day: false
+  max_retries: 6
+  backoff_seconds: 60
+  static:
+    # ERA5-Land invariant fields (land-sea mask, geopotential) and the ERA5 glacier mask.
+    land_sea_mask: true
+    geopotential: true
+    glacier_mask: true
+    lake_cover: true      # inland water: cells with lake_cover >= 0.5 are treated as water
+
+# Snow-depth thresholds (contract v1.5, D-17): ERA5-Land daily-mean snow depth that counts as
+# "snow on the ground", in whole centimetres (the cube and the point tiles store whole cm, so
+# fractional values are rejected). The default threshold is calibrated against weather stations
+# with `whitexmas stations`: ERA5-Land >= 5 cm matches >= 1 cm measured at a station. The raw
+# 1 cm view is offered as well. The default threshold's cm is manifest.threshold_cm.
+# layers: "full" = every layer; "minimal" = christmas_day probability for the full period and the
+# two normals, the change between the normals and the full-period trend. Non-default layer ids
+# get the suffix "__<id>".
+thresholds:
+  - id: calibrated
+    cm: 5
+    default: true
+    station_equivalent_cm: 1
+    label: Calibrated to weather stations
+    description: >-
+      At least {cm} cm of snow in ERA5-Land, which matches at least {station_equivalent_cm} cm
+      measured at weather stations (checked against 30 GHCN-Daily stations).
+    layers: full
+  - id: raw
+    cm: 1
+    label: Raw ERA5-Land, at least 1 cm
+    description: >-
+      At least {cm} cm of snow in ERA5-Land as published. Too snowy in lowlands by about
+      24 percentage points compared with weather stations.
+    layers: full
+
+# A window's probability is reported only where at least this share of its years has data.
+min_valid_fraction: 0.8
+
+definitions:
+  - id: christmas_day
+    label: Snow on Christmas Day
+    short: Dec 25
+    description: Daily-mean snow depth on 25 December is at least {threshold_cm} cm.
+    default: true
+  - id: all_three_days
+    label: Snow on all three days (DWD)
+    short: Dec 24–26
+    description: Daily-mean snow depth is at least {threshold_cm} cm on each of 24, 25 and 26 December.
+  - id: any_day
+    label: Snow on any of the three days
+    short: any day
+    description: Daily-mean snow depth is at least {threshold_cm} cm on at least one of 24, 25 or 26 December.
+
+windows:
+  full: true            # first..last
+  normals:              # 30-year "then vs now"
+    - [1961, 1990]
+    - [1996, 2025]
+  decades: true         # 10-year windows ending in the last year, back to the first full decade
+  change:
+    from: "1961_1990"
+    to: "1996_2025"
+
+trend:
+  window: full
+  significance_p: 0.1   # cells with Mann-Kendall p >= this are hatched as insignificant
+
+glacier:
+  # A cell is flagged as glacier when the glacier mask fraction is >= min_fraction AND, if
+  # require_always_white, it was white (any_day) in every valid year of the full period.
+  min_fraction: 0.5
+  require_always_white: true
+
+export:
+  tile_maxzoom: 6
+  tile_size: 256
+  # Lossless WebP: blocky few-colour tiles compress ~5x better than lossy q90, and colours
+  # stay exactly the colour-map stops. For lossless, quality is the compression effort.
+  webp_lossless: true
+  webp_quality: 50
+  point_tile_deg: 5
+  # Size budget for the web data bundle (contract): <= 400 MB total, every file <= 90 MB.
+  budget_total_mb: 400
+  budget_file_mb: 90
+  # Fallback when over budget: decades only for the default definition.
+  decades_for_all_definitions: true
+
+# Station check (`whitexmas stations`): GHCN-Daily snow depth (SNWD) on 25 December against the
+# cube cell of each station (contract rounding), to calibrate threshold_cm. Northern Hemisphere
+# only: 25 December is midsummer in the south.
+stations:
+  obs_threshold_mm: 10       # observed white Christmas: SNWD >= 1 cm (US stations: whole inches)
+  min_years: 15              # overlapping years with the cube
+  always_white_pct: 95       # stations observed white in >= this share are left out of calibration
+  min_coverage: 0.8          # Dec 25 values in >= 80 % of the station's span (patchy SYNOP records
+                             # often omit zero depths, which inflates the observed frequency)
+  max_elev_diff_m: 200       # station within 200 m of its cell's mean elevation (valley stations
+                             # under a mountain cell measure a different climate)
+  thresholds_cm: [1, 2, 3, 4, 5, 6, 7, 8]
+  list:
+    # North America: Great Lakes, Midwest, Northeast, Rockies, Pacific Northwest, Prairies
+    - [USW00094846, Chicago O'Hare]
+    - [USW00014922, Minneapolis-St Paul]
+    - [USW00094728, New York Central Park]
+    - [USW00023062, Denver Stapleton]
+    - [USW00014839, Milwaukee]
+    - [USW00014933, Des Moines]
+    - [USW00014733, Buffalo]
+    - [USW00094823, Pittsburgh]
+    - [USW00024233, Seattle-Tacoma]
+    - [USW00024229, Portland OR]
+    - [USW00024127, Salt Lake City]
+    - [USW00024131, Boise]
+    - [CAN06158350, Toronto]
+    - [CAN07025250, Montreal Trudeau]
+    - [CAN06106000, Ottawa Macdonald-Cartier]
+    - [CAN01108395, Vancouver]
+    - [CAN03031093, Calgary]
+    - [CAN03012205, Edmonton]
+    - [CAN05023222, Winnipeg]
+    - [CAN08202250, Halifax]
+    # Europe: lowlands, Alpine foreland and valleys, Scandinavia, east
+    - [NOM00001492, Oslo Blindern]
+    - [NO000050540, Bergen Florida]
+    - [NOE00111040, Trondheim Voll]
+    - [NO000001026, Tromso]
+    - [SWM00002485, Stockholm]
+    - [SWE00140554, Lulea]
+    - [SW000010537, Falun]
+    - [SW000024180, Karlstad]
+    - [FIE00142080, Helsinki-Vantaa]
+    - [RSM00027612, Moscow]
+    - [GM000004199, Munich-Nymphenburg]
+    - [GM000003319, Berlin-Dahlem]
+    - [GM000010147, Hamburg-Fuhlsbuettel]
+    - [GME00111512, Stuttgart-Echterdingen]
+    - [GM000010962, Hohenpeissenberg]
+    - [NLM00006260, De Bilt]
+    - [FR000007190, Strasbourg]
+    - [FR069029001, Lyon St-Exupery]
+    - [SZ000003700, Zurich-Fluntern]
+    - [SZ000001940, Basel-Binningen]
+    - [SZE00105086, Sion]
+    - [SZ000009480, Lugano]
+    - [AU000005901, Vienna]
+    - [AU000011801, Innsbruck]
+    - [AU000006306, Salzburg]
+    - [AUM00011231, Klagenfurt]
+    - [EZM00011520, Prague-Libus]
+    - [PLM00012375, Warsaw-Okecie]
+    - [PLM00012566, Krakow-Balice]
+    - [HUM00012843, Budapest]
+    # East Asia: Hokkaido, Sea-of-Japan coast, Korea
+    - [JA000047412, Sapporo]
+    - [JA000047604, Niigata]
+    - [JA000047605, Kanazawa]
+    - [JA000047582, Akita]
+    - [JA000047575, Aomori]
+    - [KSM00047108, Seoul]
+    - [KSM00047101, Chuncheon]

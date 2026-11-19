@@ -1,0 +1,62 @@
+[project]
+name = "whitexmas"
+version = "0.1.0"
+description = "Reproducible pipeline for white-Christmas statistics from ERA5-Land"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12,<3.13"
+authors = [{ name = "Alexander Koch" }]
+dependencies = [
+    "cdsapi>=0.7.5",
+    "dask>=2024.8",
+    "netcdf4>=1.7",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "pillow>=10.4",
+    "pmtiles>=3.4",
+    "pymannkendall>=1.4.3",
+    "pyogrio>=0.9",
+    "pyyaml>=6.0",
+    "rasterio>=1.4",
+    "rio-cogeo>=5.3",
+    "scipy>=1.13",
+    "shapely>=2.0",
+    "typer>=0.12",
+    "xarray>=2024.7",
+    "zarr>=3.1",
+]
+
+[project.scripts]
+whitexmas = "whitexmas.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/whitexmas"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "W"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/whitexmas/stations.py" = ["E501"]  # embedded HTML/CSS report template
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+filterwarnings = ["ignore:Consolidated metadata:UserWarning"]
+
+[tool.uv]
+python-preference = "managed"
