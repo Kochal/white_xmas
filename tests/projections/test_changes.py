@@ -29,3 +29,26 @@ def test_model_land_uses_the_land_fraction_not_just_data_presence(tmp_path):
     land, pct = model_land(ProjPaths(tmp_path), "X", lat, lon, n_base, ProjSettings(), era5_land)
     np.testing.assert_array_equal(land, [[True, False], [False, False]])
     assert pct[0, 0] > 99
+
+
+def test_per_model_file_is_reused_only_with_same_estimator_and_land_mask_source(tmp_path):
+    import xarray as xr
+
+    from whitexmas.projections.changes import ESTIMATOR
+    from whitexmas.projections.cli import _same_settings
+
+    s = ProjSettings()
+    attrs = {f"setting_{k}": str(v) for k, v in s.as_attrs().items()}
+    f = tmp_path / "X.nc"
+
+    def write(**extra):
+        xr.Dataset(attrs={**attrs, **extra}).to_netcdf(f)
+
+    write(estimator=ESTIMATOR, era5_land_source="indicators")
+    assert _same_settings(f, s, "indicators")
+    # built while only the placeholder baseline existed: its fallback land mask is wrong
+    assert not _same_settings(f, s, "placeholder-legacy-geotiff")
+    write(era5_land_source="indicators")  # before the common-n estimator
+    assert not _same_settings(f, s, "indicators")
+    write(estimator=ESTIMATOR)  # land mask source not recorded
+    assert not _same_settings(f, s, "indicators")

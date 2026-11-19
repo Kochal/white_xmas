@@ -24,6 +24,9 @@ from .settings import ProjPaths, ProjSettings
 from .transfer import logodds_change
 
 log = logging.getLogger(__name__)
+# Recorded in every per-model file; files with another (or no) estimator are recomputed.
+# "jeffreys-common-n": both windows smoothed with m = min(n_base, n_fut) (transfer.py).
+ESTIMATOR = "jeffreys-common-n"
 
 
 def counts_for_window(
@@ -95,7 +98,11 @@ def window_change(
 
 
 def compute_model(
-    pp: ProjPaths, model: str, s: ProjSettings, era5_land: np.ndarray | None = None
+    pp: ProjPaths,
+    model: str,
+    s: ProjSettings,
+    era5_land: np.ndarray | None = None,
+    era5_land_source: str = "none",
 ) -> Path:
     import xarray as xr
 
@@ -139,6 +146,9 @@ def compute_model(
             "model": model,
             "member": plan["member"],
             "baseline": f"{s.baseline_experiment} {b0}-{b1}",
+            "estimator": ESTIMATOR,
+            # where the land mask came from for models without sftlf (see cli._same_settings)
+            "era5_land_source": era5_land_source,
             **wattrs,
             **{f"setting_{k}": str(v) for k, v in s.as_attrs().items()},
         },

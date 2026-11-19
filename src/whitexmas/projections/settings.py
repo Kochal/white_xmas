@@ -6,12 +6,17 @@ owns. Every output records the settings it was built with.
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from ..paths import DataPaths
 
 GWLS = (1.5, 2.0, 3.0)
+# A named variant writes to interim/projections_<variant> and products/projections_<variant>
+# instead of interim/projections and products/projections (a rebuild next to a released set).
+VARIANT_ENV = "WHITEXMAS_PROJ_VARIANT"
 DEFINITIONS = ("christmas_day", "all_three_days", "any_day")
 
 
@@ -40,16 +45,33 @@ class ProjSettings:
         return {k: (list(v) if isinstance(v, tuple) else v) for k, v in d.items()}
 
 
+def check_variant(variant: str) -> str:
+    if variant and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", variant):
+        raise ValueError(f"invalid projections variant {variant!r} (letters, digits, _ and -)")
+    return variant
+
+
 @dataclass(frozen=True)
 class ProjPaths:
     root: Path
+    # "" = the default folders; "v2" = interim/projections_v2, products/projections_v2
+    variant: str = ""
+
+    def __post_init__(self) -> None:
+        check_variant(self.variant)
 
     @classmethod
     def from_data(cls, paths: DataPaths) -> ProjPaths:
-        return cls(paths.root)
+        """Paths for the data root; the variant comes from ``$WHITEXMAS_PROJ_VARIANT``."""
+        return cls(paths.root, os.environ.get(VARIANT_ENV, "").strip())
+
+    @property
+    def _name(self) -> str:
+        return f"projections_{self.variant}" if self.variant else "projections"
 
     @property
     def cmip6(self) -> Path:
+        """Model downloads, shared by every variant."""
         return self.root / "cmip6"
 
     @property
@@ -58,7 +80,7 @@ class ProjPaths:
 
     @property
     def interim(self) -> Path:
-        return self.root / "interim" / "projections"
+        return self.root / "interim" / self._name
 
     @property
     def models(self) -> Path:
@@ -76,7 +98,7 @@ class ProjPaths:
 
     @property
     def products(self) -> Path:
-        return self.root / "products" / "projections"
+        return self.root / "products" / self._name
 
     @property
     def staging(self) -> Path:

@@ -23,6 +23,7 @@ import numpy as np
 
 from ..paths import DataPaths
 from .baseline import NX, NY, load_baseline, target_grid
+from .changes import ESTIMATOR
 from .regrid import bilinear, fill_nearest
 from .settings import ProjPaths, ProjSettings
 from .transfer import apply_change
@@ -101,6 +102,18 @@ def build_ensemble(
     files = [f for f in files if f.stem not in exclude]
     if not files:
         raise FileNotFoundError(f"no per-model results in {pp.models}")
+    stale = []
+    for f in files:
+        with xr.open_dataset(f) as ds:
+            if ds.attrs.get("estimator") != ESTIMATOR:
+                stale.append(f.stem)
+    if stale:
+        # older files smoothed each window with its own length: a spurious change of +-0.4 in
+        # every never- or always-white cell (docs/projections.md, Method step 4)
+        raise ValueError(
+            f"per-model changes in {pp.models} were not made with the {ESTIMATOR!r} estimator "
+            f"({', '.join(stale)}); re-run `whitexmas projections changes`"
+        )
     names = [f.stem for f in files]
     defs = list(definitions or s.definitions)
     gwls = list(s.gwls)
@@ -156,7 +169,9 @@ def build_ensemble(
             if thresholds
             else "null",
             "placeholder": any(src != "indicators" for src in sources),
-            "settings": json.dumps(s.as_attrs()),
+            # the estimator is part of the settings so consumers that fingerprint them (admin1)
+            # rebuild after an estimator change
+            "settings": json.dumps({**s.as_attrs(), "estimator": ESTIMATOR}),
         },
     )
     for k in ("p10", "p50", "p90", "change", "baseline"):

@@ -35,6 +35,24 @@ Pool = Annotated[int, typer.Option(help="Pool centre days within +/- this of 25 
 log = logging.getLogger(__name__)
 
 
+@app.callback()
+def _main(
+    variant: Annotated[
+        str | None,
+        typer.Option(
+            help="Write to interim/projections_<variant> and products/projections_<variant> "
+            "(same as $WHITEXMAS_PROJ_VARIANT); the default folders are left untouched"
+        ),
+    ] = None,
+) -> None:
+    import os
+
+    from .settings import VARIANT_ENV, check_variant
+
+    if variant is not None:
+        os.environ[VARIANT_ENV] = check_variant(variant.strip())
+
+
 def _setup(verbose: bool, threshold: float, pool: int, exclude: list[str] | None):
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO,
@@ -46,12 +64,20 @@ def _setup(verbose: bool, threshold: float, pool: int, exclude: list[str] | None
 
 
 def _era5_land(paths: DataPaths):
+    """ERA5-Land land mask and its source ("indicators", a placeholder, or "none")."""
     from .baseline import load_baseline
 
     try:
-        return load_baseline(paths, "christmas_day").land
+        b = load_baseline(paths, "christmas_day")
     except Exception:  # noqa: BLE001 - only used where a model has no sftlf
-        return None
+        return None, "none"
+    if b.placeholder:
+        log.warning(
+            "ERA5-Land land mask from the placeholder baseline: models without sftlf get a "
+            "land mask that counts the whole Northern Hemisphere as land; re-run `changes` "
+            "once indicators.zarr exists (it does so by itself)"
+        )
+    return b.land, b.source
 
 
 @app.command()
@@ -71,23 +97,32 @@ def changes(
     skipped = sorted(set(model or []) - set(ready))
     if skipped:
         typer.echo(f"downloads incomplete, skipped: {', '.join(skipped)}")
-    land = _era5_land(paths)
+    land, land_source = _era5_land(paths)
     for m in todo:
         out = pp.models / f"{m}.nc"
-        if out.exists() and not force and _same_settings(out, s):
+        if out.exists() and not force and _same_settings(out, s, land_source):
             continue
-        compute_model(pp, m, s, land)
+        compute_model(pp, m, s, land, land_source)
     typer.echo(f"{len(todo)} models: {', '.join(todo)}")
 
 
-def _same_settings(path: Path, s: ProjSettings) -> bool:
+def _same_settings(path: Path, s: ProjSettings, era5_land_source: str) -> bool:
+    """A per-model file can be reused only if it was built with the same settings, the
+    current change estimator, and the same ERA5-Land land mask (the fallback for models without
+    sftlf: a file built while only the placeholder baseline existed has a wrong land mask)."""
     import xarray as xr
 
+    from .changes import ESTIMATOR
+
     with xr.open_dataset(path) as ds:
-        return all(
-            ds.attrs.get(f"setting_{k}") == str(v)
-            for k, v in s.as_attrs().items()
-            if k != "exclude"
+        return (
+            all(
+                ds.attrs.get(f"setting_{k}") == str(v)
+                for k, v in s.as_attrs().items()
+                if k != "exclude"
+            )
+            and ds.attrs.get("estimator") == ESTIMATOR
+            and ds.attrs.get("era5_land_source") == era5_land_source
         )
 
 
