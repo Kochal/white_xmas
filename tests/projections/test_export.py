@@ -93,3 +93,50 @@ def test_layer_ids_and_block_follow_the_contract(tmp_path):
     out = json.loads(m.read_text())
     assert [ly["id"] for ly in out["layers"]] == ["prob__x", *ids]
     assert out["projections"]["available"] is True
+
+
+def _tiny_ensemble(root, placeholder: bool):
+    import xarray as xr
+
+    from whitexmas.projections.settings import ProjPaths
+
+    pp = ProjPaths(root)
+    pp.ensemble.parent.mkdir(parents=True, exist_ok=True)
+    xr.Dataset(
+        {"p50": (("definition", "gwl", "lat", "lon"), np.zeros((1, 1, 2, 2), "float32"))},
+        coords={"definition": ["christmas_day"], "gwl": [2.0], "lat": [0.0, 1.0], "lon": [0, 1]},
+        attrs={"placeholder": placeholder, "models": "[]", "settings": "{}"},
+    ).to_zarr(pp.ensemble, mode="w")
+    return pp
+
+
+def test_placeholder_export_is_refused_and_never_written_to_the_bundled_folder(tmp_path):
+    import pytest
+
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.export import export_projections
+
+    _tiny_ensemble(tmp_path, placeholder=True)
+    paths = DataPaths(tmp_path)
+    with pytest.raises(RuntimeError, match="PLACEHOLDER"):
+        export_projections(paths, tmp_path / "preview", cogs=False)
+    bundled = tmp_path / "repo" / "web" / "static" / "data"
+    with pytest.raises(RuntimeError, match="bundled"):
+        export_projections(paths, bundled, cogs=False, allow_placeholder=True)
+    assert not bundled.exists()
+
+
+def test_manifest_fragment_is_none_unless_a_real_export_exists(tmp_path):
+    from whitexmas.paths import DataPaths
+    from whitexmas.projections.export import manifest_fragment
+    from whitexmas.projections.settings import ProjPaths
+
+    paths = DataPaths(tmp_path)
+    assert manifest_fragment(paths) is None
+    prod = ProjPaths(tmp_path).products
+    prod.mkdir(parents=True)
+    frag = {"layers": [{"id": "proj__christmas_day__gwl2.0"}], "projections": {"available": True}}
+    (prod / "manifest_fragment.json").write_text(json.dumps({**frag, "placeholder": True}))
+    assert manifest_fragment(paths) is None
+    (prod / "manifest_fragment.json").write_text(json.dumps({**frag, "placeholder": False}))
+    assert manifest_fragment(paths) == frag

@@ -12,7 +12,8 @@ Writes, from ``interim/projections/projections.zarr``:
   entries and the ``projections`` block; :func:`manifest_fragment` returns it so the pipeline's
   manifest writer can merge it, and :func:`patch_manifest` merges it into an existing
   ``manifest.json`` directly.
-- ``$WHITEXMAS_DATA/products/projections/cog/*.tif``: COGs of p10, p50, p90 and change.
+- ``$WHITEXMAS_DATA/products/projections/cog/*.tif``: COGs of p10, p50, p90 and change
+  (a placeholder preview goes to ``cog_placeholder/`` and is tagged ``placeholder=true``).
 
 ``wx-proj-v1`` (little-endian, gzip): header 16 B = b"WXQ1", uint8 n_levels, uint8 n_stats (3),
 uint16 n_cells_x, uint16 n_cells_y, 6 reserved bytes; body uint8[ny][nx][n_levels][n_stats]
@@ -213,13 +214,32 @@ def _render_layer(
     )
 
 
+def is_pipeline_web_out(web_out: Path) -> bool:
+    """True for the pipeline's web data folder (``web/static/data``), which gets bundled."""
+    from ..paths import REPO_ROOT
+
+    p = Path(web_out).resolve()
+    return p == (REPO_ROOT / "web" / "static" / "data").resolve() or p.parts[-3:] == (
+        "web",
+        "static",
+        "data",
+    )
+
+
 def export_projections(
     paths: DataPaths,
     web_out: Path,
     cogs: bool = True,
     allow_placeholder: bool = False,
     definitions: tuple[str, ...] = ("christmas_day",),
+    patch: bool = False,
 ) -> dict:
+    """Write the projection products. ``patch`` also merges the fragment into an existing
+    ``web_out/manifest.json`` (normally the pipeline's export does that merge itself).
+
+    A build on the placeholder baseline is refused unless ``allow_placeholder``, and even then
+    never into the pipeline's ``web/static/data`` (whose contents are bundled and published).
+    """
     import xarray as xr
 
     from ..config import Config
@@ -235,6 +255,11 @@ def export_projections(
         raise RuntimeError(
             "projections were built on the PLACEHOLDER baseline; rebuild them once the "
             "pipeline's indicators exist, or pass allow_placeholder for a local preview"
+        )
+    if placeholder and is_pipeline_web_out(web_out):
+        raise RuntimeError(
+            f"refusing to write a PLACEHOLDER preview into {web_out}: that folder is bundled "
+            "and published; pass a separate preview folder as web_out"
         )
     defs = [str(d) for d in ds["definition"].values if str(d) in definitions]
     if not defs:
@@ -291,8 +316,10 @@ def export_projections(
         "projections": projections_block(models, gwls, settings.get("obs_window", "1996_2025")),
     }
     pp.products.mkdir(parents=True, exist_ok=True)
-    (pp.products / "manifest_fragment.json").write_text(json.dumps(frag, indent=1))
-    if (web_out / "manifest.json").exists():
+    # a placeholder preview never replaces a real fragment
+    frag_name = "manifest_fragment.placeholder.json" if placeholder else "manifest_fragment.json"
+    (pp.products / frag_name).write_text(json.dumps(frag, indent=1))
+    if patch and (web_out / "manifest.json").exists():
         patch_manifest(web_out / "manifest.json", frag)
         log.info("merged projections into %s", web_out / "manifest.json")
     if cogs:
@@ -302,12 +329,14 @@ def export_projections(
             "source": "CMIP6 (ESGF) change applied to ERA5-Land (Copernicus C3S)",
             "models": ",".join(models),
             "license": "CC BY 4.0",
+            "placeholder": "true" if placeholder else "false",
         }
+        cog_dir = pp.products / ("cog_placeholder" if placeholder else "cog")
         for d in defs:
             for g in gwls:
                 for k, unit in (("p10", "%"), ("p50", "%"), ("p90", "%"), ("change", "pp")):
                     write_cog(
-                        pp.products / "cog" / f"proj_{k}__{d}__{gwl_id(g)}.tif",
+                        cog_dir / f"proj_{k}__{d}__{gwl_id(g)}.tif",
                         ds[k].sel(definition=d, gwl=g).values,
                         tags={**tags, "units": unit, "definition": d, "warming_level": g},
                     )

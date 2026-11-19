@@ -193,7 +193,8 @@ comparing its absolute snow with ERA5-Land.
 ```
 uv run scripts/projections/cmip6_select.py          # plan.json (models, windows, files)
 uv run scripts/projections/cmip6_download.py        # subsets + manifest, resumable
-uv run python -m whitexmas.projections run --web-out web/static/data
+uv run whitexmas projections run --web-out web/static/data    # real baseline only
+uv run whitexmas export --web-out web/static/data             # merges the projections
 ```
 
 `run` is `changes → validate → ensemble → export`; each step also exists on its own.
@@ -201,8 +202,12 @@ Outputs: `interim/projections/models/<model>.nc` (counts and Δ per model grid),
 `interim/projections/validation/` (bias maps, `skill.csv`, `hindcast.json`),
 `interim/projections/projections.zarr` (0.1° ensemble), and the web products below. A build on
 the placeholder baseline (no `interim/indicators.zarr` yet) refuses to export unless
-`--allow-placeholder` is passed, and its manifest fragment is marked so the pipeline never
-publishes it.
+`--allow-placeholder` is passed, and even then never into `web/static/data` (that folder is
+bundled and published), so a preview needs its own `--web-out`. A placeholder preview writes
+`manifest_fragment.placeholder.json` (never merged) and COGs tagged `placeholder=true` in
+`cog_placeholder/`. Model validation never falls back to the placeholder: without real
+ERA5-Land data for the period it is skipped, and the ensemble refuses a model selection that
+does not record a real ERA5-Land reference.
 
 ### Web products (contract: `manifest.projections`, `wx-proj-v1`)
 
@@ -213,7 +218,8 @@ publishes it.
   `projection_change`, `hatch_disagreement: true`; contract v1.2).
 - `proj/<tx>_<ty>.bin.gz`: `wx-proj-v1` point tiles (p10, median, p90 and agreement per level).
 - `$WHITEXMAS_DATA/products/projections/manifest_fragment.json`: the layer entries and the
-  `projections` block, merged into `manifest.json` by `whitexmas.projections.export`.
+  `projections` block. The pipeline's `whitexmas export` merges it into `manifest.json` (via
+  `whitexmas.projections.export.manifest_fragment`); `--patch-manifest` merges it directly.
 - COGs of p10, p50, p90 and change per level in `$WHITEXMAS_DATA/products/projections/cog/`.
 
 Sizes with the placeholder baseline: about 2.8 MB per layer (6 layers) and 3.4 MB of point tiles.

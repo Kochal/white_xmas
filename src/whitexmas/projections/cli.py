@@ -158,7 +158,14 @@ def ensemble(
 def export(
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
     allow_placeholder: Annotated[
-        bool, typer.Option(help="Allow a local preview built on the placeholder baseline")
+        bool,
+        typer.Option(
+            help="Allow a local preview built on the placeholder baseline "
+            "(needs a --web-out other than web/static/data)"
+        ),
+    ] = False,
+    patch_manifest: Annotated[
+        bool, typer.Option(help="Also merge into an existing web_out/manifest.json")
     ] = False,
     cogs: bool = True,
     verbose: bool = False,
@@ -167,7 +174,9 @@ def export(
     from .export import export_projections
 
     paths, *_ = _setup(verbose, 2.5, 7, None)
-    res = export_projections(paths, web_out, cogs=cogs, allow_placeholder=allow_placeholder)
+    res = export_projections(
+        paths, web_out, cogs=cogs, allow_placeholder=allow_placeholder, patch=patch_manifest
+    )
     typer.echo(
         f"{len(res['layers'])} layers, {res['points']['tiles']} point tiles"
         + (" (PLACEHOLDER baseline)" if res["placeholder"] else "")
@@ -196,4 +205,10 @@ def run(
         definition=None,
         verbose=verbose,
     )
-    export(web_out=web_out, allow_placeholder=allow_placeholder, cogs=True, verbose=verbose)
+    export(
+        web_out=web_out,
+        allow_placeholder=allow_placeholder,
+        patch_manifest=False,
+        cogs=True,
+        verbose=verbose,
+    )
