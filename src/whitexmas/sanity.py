@@ -77,9 +77,13 @@ def build_report(cfg: Config, paths: DataPaths, legacy_tif: Path | None, out_dir
     a, b = cfg.change_pair
     full = cfg.full_window().id
 
+    from .export.places import nearest_valid
+
+    land_mask = ind["land"][:]
     cities = []
     for name, lat, lon in CITIES:
-        j, i = _cell(lat, lon)
+        # same rule as places.json: the city's cell, else the nearest land cell within 2 cells
+        j, i = nearest_valid(land_mask, *_cell(lat, lon)) or _cell(lat, lon)
         row = {"name": name, "lat": lat, "lon": lon, "cell": [j, i],
                "glacier": bool(ind["glacier"][j, i]), "values": {}}  # fmt: skip
         for tid, z in inds.items():
