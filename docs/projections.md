@@ -1,7 +1,10 @@
 # Future projections: white Christmas at +1.5, +2 and +3 °C
 
 Status: **P1 and P2 done: validated on ERA5-Land 1996–2025 with a hindcast, built and exported on the
-calibrated 5 cm baseline (D-17, 2026-11-19).**
+calibrated 5 cm baseline (D-17, 2026-11-19).** **Estimator fix (2026-11-19, branch `projfix`):** the
+log-odds change no longer invents a change where a model cell has the same frequency in both
+windows (see "Windows of different length" below). The fixed set is built in
+`products/projections_v2/`; the released data-2025.1 keeps the old numbers until data-2025.2.
 This page is the working document for the projections track (plan §3b, milestones P1–P2) and
 the source for the methodology page's Future section.
 
@@ -182,9 +185,13 @@ The full sensitivity test across all models is part of Phase 2 validation.
 3. **Frequencies** in the baseline (1996–2025: historical to 2014, SSP2-4.5 from 2015; D-12) and
    in each warming-level window (§3). Historical and scenario files are joined on the calendar
    date, so the 2014 season keeps its January 2015 days.
-4. **Change in log-odds** with Jeffreys smoothing, `q = (k + ½)/(n + 1)`, so 0 % and 100 % stay
-   finite: `Δ = logit(q_future) − logit(q_baseline)`, with `k` the (fractional) white-year count
-   and `n` = 20 years.
+4. **Change in log-odds** with Jeffreys smoothing, so 0 % and 100 % stay finite. The baseline has
+   `n_b` = 30 years and each warming-level window `n_f` = 20, so both frequencies `f = k/n` (`k`
+   the fractional white-year count) are smoothed with the **same** effective number of years,
+   the shorter window's `m = min(n_b, n_f)` = 20: `q = (f·m + ½)/(m + 1)` and
+   `Δ = logit(q_future) − logit(q_baseline)`. The same frequency in both windows gives exactly
+   `Δ = 0`; for equal windows (the 30/30-year hindcast) this is plain Jeffreys smoothing of each
+   count. Why not each window's own `n`: see "Windows of different length" below.
 5. **Regrid** each model's `Δ` bilinearly to the 0.1° ERA5-Land grid. Model ocean cells are first
    filled from the nearest model land cell so that coastal ERA5-Land cells get a value.
 6. **Apply** to the ERA5-Land baseline `p` (1996–2025, `n` = 30 years, at the published default
@@ -195,7 +202,8 @@ The full sensitivity test across all models is part of Phase 2 validation.
    two thirds of the models with a value agree on the direction of the change, where "no change"
    (`Δ = 0`, e.g. a model cell with snow in every year of both windows) counts as a direction of
    its own (contract v1.3 states this for the hatching and the `wx-proj-v1` agreement bit).
-   Without that, cells that keep snow in every model would be flagged as disagreeing.
+   Without that, cells that keep snow in every model would be flagged as disagreeing. (Before the
+   estimator fix such a model cell got `Δ = −0.40`, not 0, so "no change" hardly ever occurred.)
 
 Why log-odds: a change of "−20 percentage points" means something very different at 25 % and at
 95 %. Log-odds is the scale on which a logistic relation between snow and temperature is linear,
@@ -210,6 +218,18 @@ uv run scripts/projections/cmip6_download.py        # subsets + manifest, resuma
 uv run whitexmas projections run      # renders into $WHITEXMAS_DATA/products/projections/web
 uv run whitexmas export               # stages the projection files into its web-out and lists them
 ```
+
+**Variants.** `whitexmas projections --variant v2 <step>` (or `WHITEXMAS_PROJ_VARIANT=v2`) reads
+the same `cmip6/` downloads but writes to `interim/projections_v2/` and
+`products/projections_v2/`, so a rebuild can sit next to a released set. The pipeline's
+`whitexmas export` (and `whitexmas admin1`, which reads the per-model files) pick the variant
+up from the same environment variable.
+
+**Staleness guards.** Every per-model file records the change estimator (`estimator`,
+currently `jeffreys-common-n`) and where its land mask came from for models without `sftlf`
+(`era5_land_source`). `changes` recomputes a file whose estimator or land-mask source differs
+from the current one, and `ensemble` refuses per-model files made with another estimator. The
+ensemble records the estimator in its `settings` attribute.
 
 `run` is `changes → validate → ensemble → export`; each step also exists on its own.
 Outputs: `interim/projections/models/<model>.nc` (counts and Δ per model grid),
@@ -263,26 +283,32 @@ map).
 
 | Place | Today (1996–2025) | +1.5 °C | +2 °C | +3 °C |
 |---|---|---|---|---|
-| Oslo | 67 % | 61 % (46–73) | 56 % (40–67) | 34 % (24–67) |
-| Stockholm | 30 % | 28 % (16–33) | 16 % (9–29) | 11 % (4–18) |
-| Helsinki | 50 % | 46 % (30–53) | 34 % (23–43) | 22 % (15–33) |
-| Moscow | 87 % | 80 % (70–85) | 73 % (59–83) | 57 % (30–74) |
-| Warsaw | 13 % | 11 % (5–15) | 9 % (4–13) | 5 % (1–10) |
-| Berlin | 7 % | 5 % (2–9) ¹ | 4 % (1–8) | 2 % (0–5) |
-| Prague | 10 % | 8 % (3–10) | 6 % (4–9) | 4 % (1–6) |
+| Oslo | 67 % | 65 % (48–74) ¹ | 61 % (42–69) | 39 % (26–68) |
+| Stockholm | 30 % | 27 % (16–33) | 16 % (9–29) | 11 % (4–18) |
+| Helsinki | 50 % | 46 % (33–54) | 34 % (23–43) | 23 % (15–34) |
+| Moscow | 87 % | 82 % (74–88) | 77 % (62–84) | 61 % (33–76) |
+| Warsaw | 13 % | 11 % (5–15) | 9 % (4–12) | 5 % (1–10) |
+| Berlin | 7 % | 5 % (2–9) | 3 % (1–8) | 2 % (0–5) |
+| Prague | 10 % | 8 % (3–10) | 6 % (3–9) | 4 % (1–6) |
 | Vienna | 10 % | 7 % (4–10) | 7 % (3–12) | 4 % (1–8) |
-| Munich | 27 % | 21 % (13–28) | 18 % (11–27) | 11 % (6–21) |
-| Zurich | 27 % | 21 % (13–30) | 16 % (9–28) | 10 % (5–15) |
-| Innsbruck | 93 % | 90 % (81–94) | 87 % (78–93) | 78 % (68–87) |
-| London | 0 % | 1 % (0–1) | 0 % (0–1) ¹ | 0 % (0–1) ¹ |
-| Montreal | 70 % | 62 % (48–69) | 52 % (41–68) | 42 % (27–62) |
-| Toronto ² | 37 % | 31 % (21–40) | 27 % (16–39) | 19 % (9–27) |
-| Minneapolis | 63 % | 54 % (39–67) | 48 % (29–69) | 35 % (18–49) |
-| Chicago | 33 % | 30 % (19–40) ¹ | 28 % (14–37) | 16 % (9–28) |
-| Boston | 23 % | 21 % (13–30) ¹ | 18 % (9–26) | 10 % (5–17) |
-| New York | 3 % | 2 % (1–5) ¹ | 2 % (0–4) | 1 % (0–3) |
-| Denver | 40 % | 36 % (21–45) | 26 % (17–40) | 26 % (14–37) |
-| Sapporo | 100 % | 99 % (98–100) | 99 % (97–100) | 95 % (88–99) |
+| Munich | 27 % | 22 % (14–28) | 18 % (11–27) | 12 % (7–21) |
+| Zurich | 27 % | 22 % (14–30) | 16 % (10–27) | 10 % (5–15) |
+| Innsbruck | 93 % | 91 % (83–94) | 89 % (79–93) | 81 % (69–89) |
+| London | 0 % | 0 % (0–0) ¹ | 0 % (0–0) ¹ | 0 % (0–0) ¹ |
+| Montreal | 70 % | 65 % (50–70) | 53 % (42–69) | 43 % (28–63) |
+| Toronto ² | 37 % | 31 % (22–40) | 27 % (16–39) | 19 % (9–28) |
+| Minneapolis | 63 % | 57 % (40–68) | 49 % (30–69) | 35 % (18–50) |
+| Chicago | 33 % | 30 % (18–40) ¹ | 27 % (14–37) | 15 % (9–27) |
+| Boston | 23 % | 20 % (14–30) ¹ | 16 % (9–25) | 10 % (5–17) |
+| New York | 3 % | 2 % (1–5) | 2 % (0–3) | 1 % (0–3) |
+| Denver | 40 % | 37 % (24–46) | 27 % (19–40) | 26 % (15–38) |
+| Sapporo | 100 % | 99 % (98–100) | 99 % (97–100) | 96 % (89–99) |
+
+These are the fixed numbers (`products/projections_v2/`, common-`m` estimator); the released
+data-2025.1 numbers are in the before/after table under "Windows of different length". London
+is hatched because its models split between "no change" and small decreases or increases, even
+though the median stays at 0 %. (Cells as in the table before: Oslo is the 59.91 °N, 10.75 °E
+cell; `places.json` uses the neighbouring cell, 77 % today.)
 
 ² Toronto's own ERA5-Land cell is Lake Ontario (no data); like `places.json`, the row uses the
 nearest land cell (43.7 °N). Innsbruck and Sapporo show the 9 km cell, which includes the
@@ -293,14 +319,15 @@ What the numbers say:
 
 - **The decline is gradual at +1.5 °C and clear by +2 °C.** Over land 25–75 °N, in places where a
   white Christmas is uncertain today (10–90 %), the average probability falls from 47 % today
-  to 42 % at +1.5 °C, 38 % at +2 °C and 31 % at +3 °C. Models agree on the direction in 79 %,
-  91 % and 94 % of those places.
+  to 42 % at +1.5 °C, 39 % at +2 °C and 32 % at +3 °C. Models agree on the direction in 71 %,
+  84 % and 91 % of those places (78, 90 and 94 % before the estimator fix, which counted a
+  model that is white in every year of both windows as a decrease).
 - **Mid-latitude and Nordic cities lose the most:** Stockholm 30 → 16 % and Helsinki 50 → 34 % at
-  +2 °C; Minneapolis 63 → 35 %, Montreal 70 → 42 % and Munich 27 → 11 % at +3 °C.
+  +2 °C; Minneapolis 63 → 35 %, Montreal 70 → 43 % and Munich 27 → 12 % at +3 °C.
 - **Places where Christmas snow is already rare** (Berlin 7 %, Vienna 10 %, New York 3 %) fall
-  to a few per cent; London (0 %) stays at essentially zero.
+  to a few per cent; London (0 %) stays at 0 %.
 - **Cold or high places change least** (Sapporo, Innsbruck): snow cover there stays reliable even
-  several degrees warmer. Moscow still drops from 87 % to 57 % at +3 °C.
+  several degrees warmer. Moscow still drops from 87 % to 61 % at +3 °C.
 - The ranges are wide. This is mostly year-to-year weather inside each model's 20-year window,
   not disagreement about the physics; it is why the site shows the band, not just the median.
 
@@ -311,9 +338,9 @@ observed threshold; only the baseline it is applied to does.
 ### Products
 
 - `tiles/proj__christmas_day__gwl{1.5,2.0,3.0}.pmtiles` and
-  `tiles/projchange__christmas_day__gwl{…}.pmtiles`: 6 layers, 14.9 MB, 3144 tiles each (z0–6,
+  `tiles/projchange__christmas_day__gwl{…}.pmtiles`: 6 layers, 14.9 MB (v2: 15.0 MB), 3144 tiles each (z0–6,
   lossless WebP, same renderer and colours as the historical layers), `"threshold": "calibrated"`.
-- `proj/<tx>_<ty>.bin.gz`: 1391 `wx-proj-v1` point tiles, 1.6 MB.
+- `proj/<tx>_<ty>.bin.gz`: 1391 `wx-proj-v1` point tiles, 1.6 MB (v2: 1.5 MB).
 - `manifest_fragment.json` (not a placeholder, `threshold: {"id": "calibrated", "cm": 5}`): 6 layers
   and the `projections` block with `warming_levels` "around the 2030s", "around the 2040s", and
   for +3 °C "late this century or later; most models reach it only under SSP5-8.5".
@@ -421,7 +448,9 @@ re-run for D-17; the run at 1 cm gave +3.1 % against a ceiling of +9.1 %):
 | Perfect: the observed 1996–2025 frequency | 0.0524 | +10.3 % (the ceiling) |
 
 Mean change over the region: observed -3.0 pp, ensemble median
--2.0 pp.
+-2.0 pp. Both windows here have 30 years, so the estimator fix leaves this hindcast exactly as it
+was (re-run on 2026-11-19 with the fixed code: identical numbers). The test with windows of
+different length is under "Windows of different length".
 
 What this says, in plain words:
 
@@ -478,7 +507,152 @@ The typical change hardly depends on the threshold or on pooling (−0.49 to −
 about 38 % at +2 °C). Pooling ± 7 days narrows the model spread by about a quarter (26 %) and
 cell-to-cell noise by 30 %, which is the point of it: less of the uncertainty band is sampling
 noise. (With the earlier 1995–2014 baseline the median change was −0.55; the 1996–2025 baseline
-is about 0.15 °C warmer, so the step to +2 °C is a little smaller.)
+is about 0.15 °C warmer, so the step to +2 °C is a little smaller.) This table was computed with
+the per-window smoothing used before the estimator fix of 2026-11-19 and has not been re-run;
+it compares settings with each other, which the fix affects alike.
+
+## Windows of different length: no spurious change (fix, 2026-11-19)
+
+**The bug.** Step 4 used to smooth each window with its own length: `q = (k + ½)/(n + 1)` with
+`n` = 30 for the baseline and `n` = 20 for the warming-level window. The pseudo-count of ½ pulls
+a 20-year frequency harder towards 50 % than a 30-year one, so the same frequency in both windows
+looked like a change. Projected probability for an ERA5-Land cell at 0 %, 50 % or 100 %:
+
+| Model cell (baseline → warming-level window) | Δ old (own `n`) | Δ new (common `m`) | 0 % → | 50 % → | 100 % → |
+|---|---|---|---|---|---|
+| never white, 0/30 → 0/20 | +0.397 | 0 | 0.79 % old, 0 % new | 60.1 % old, 50 % new | 100 % |
+| always white, 30/30 → 20/20 | −0.397 | 0 | 0 % | 39.9 % old, 50 % new | 99.2 % old, 100 % new |
+| 10 % in both, 3/30 → 2/20 | +0.060 | 0 | 0.10 % old, 0 % new | 51.5 % old, 50 % new | 100 % |
+| 90 % in both, 27/30 → 18/20 | −0.060 | 0 | 0 % | 48.5 % old, 50 % new | 99.9 % old, 100 % new |
+| rare, disappears, 1/30 → 0/20 | −0.735 | −0.880 | 0 % | 31.8 % old, 28.6 % new | 98.3 % old, 97.7 % new |
+| rare, appears, 0/30 → 1/20 | +1.546 | +1.149 | 5.7 % old, 3.4 % new | 83.5 % old, 76.8 % new | 100 % |
+
+Every model has 70–80 % of its land cells never or always white in both windows, so in the
+released data-2025.1 nearly every 0 % cell showed about 1 % in the future (London "0 → 1 %") and
+nearly every 100 % cell 99 %. The bias is not only at 0 and 100 %: any frequency below 50 % was
+nudged up and any above 50 % down.
+
+**Options considered.**
+
+- *Set Δ = 0 when `k` = 0 or `k` = `n` in both windows.* Fixes the two extremes only; equal
+  mixed frequencies (10 % in both) still get a change. Rejected: it special-cases outputs.
+- *Shrink Δ* (multiply it by a reliability factor). Reduces the bias but never removes it, and
+  damps real signals too. Rejected.
+- *Anchor on the smoothed baseline* (apply step 6 in the model's own smoothed space). Step 6
+  already maps "no change" to "no change"; the spurious part is in Δ itself, so this does not
+  help.
+- *The same pseudo-count correction for both windows (chosen).* Smooth both frequencies as if
+  they came from the same number of years, `m = min(n_b, n_f)`. Equal frequencies give exactly
+  Δ = 0 for any window lengths and any frequency; it is antisymmetric (swapping the windows flips
+  the sign); it stays finite at 0 and 100 %; and for equal windows it is exactly the old
+  Jeffreys estimate. The shorter window's `m` keeps the smoothing as strong as the less informed
+  window needs; a 30-year `m` would make the 20-year frequency look more certain than its 20
+  years allow (and give rare-event cells larger changes: 0/30 → 1/20 would be +1.55 instead of
+  +1.15).
+
+**Validation.**
+
+- *(a) No change gives exactly zero.* Unit tests for 0/30 → 0/20, 30/30 → 20/20, 10 % and 90 %
+  in both, fractional pooled counts and per-cell `n` (`tests/projections/test_transfer.py`).
+  On the real data, of the cells at 0 % today, 94–97 % showed a future probability above 0
+  before the fix and 0.1–0.4 % after (cells where some models really show snow appearing).
+- *(b) Skill does not get worse.* The production hindcast (1961–1990 → 1996–2025, both 30 years)
+  is unchanged by construction (re-run: Brier skill +4.0 %, identical to the table above), and
+  so are the skill table and the model selection, which do not use Δ. An **unequal-window
+  hindcast** with the same 30-vs-20 shape as production (each model's change from 1961–1990 to
+  2006–2025, applied to ERA5-Land 1961–1990, scored against ERA5-Land 2006–2025, 19 models):
+  ensemble Brier skill against "no change" +6.58 % old, **+6.56 %** new (ceiling +14.8 %); single
+  models −3.1 to +5.4 % old, **−2.1 to +5.8 %** new. Reliability: the 0–10 % bin improves
+  (forecast 1.9 % old, 1.5 % new, observed 1.0 %); the 90–100 % bin gets a little worse (98.7 %
+  old, 99.4 % new, observed 98.3 %) because the old −0.40 in always-white cells happened to look
+  like the real decline at the snowy edge. Mean change: observed −3.9 pp, ensemble −2.6 pp old
+  and −2.2 pp new, so the method stays conservative.
+- *(c) Rare-event cells behave sensibly.* A model cell going from 1 in 30 years to 0 in 20 gets
+  Δ = −0.88 (finite, negative); 0 in 30 to 1 in 20 gets +1.15; Δ rises monotonically with the
+  future count. In the real data, cells above 0 and up to 10 % today (9 % of land 25–75 °N,
+  mean 6.0 %) fall to 4.8 / 4.0 / 3.0 % at +1.5 / +2 / +3 °C (old: 5.3 / 4.4 / 3.3 %): the old
+  upward bias had damped their decline.
+
+**Effect on the products** (median projected probability, `christmas_day`, fixed minus
+data-2025.1; 2,188,137 land cells, area weighted by cos(latitude)):
+
+| | +1.5 °C | +2 °C | +3 °C |
+|---|---|---|---|
+| Land area changed by ≥ 0.5 pp | 87.6 % | 86.6 % | 85.8 % |
+| … by ≥ 1 pp | 7.2 % | 6.9 % | 8.3 % |
+| … by ≥ 5 pp | 0.9 % | 0.9 % | 0.9 % |
+| Mean absolute change | 0.86 pp | 0.84 pp | 0.85 pp |
+| Largest change up / down | +10.2 / −10.2 pp | +10.2 / −12.4 pp | +22.3 / −13.7 pp |
+| Land 25–75 °N changed by ≥ 1 pp | 15.1 % | 14.3 % | 17.3 % |
+| Agreement flag flipped (land) | 23.2 % | 20.4 % | 17.7 % |
+
+Most of the "≥ 0.5 pp" area is the 0.8 pp artefact disappearing from never-white cells (54 % of
+land) and always-white cells (28 %). Changes of 5 pp or more are in snowy places (median
+baseline 63–73 %) where several models are white every year in both windows: those models used
+to pull the median down with a spurious −0.40 and now count as "no change". So snowy places
+(Oslo, Moscow, Innsbruck) decline a little less than published, and places where snow is rare
+a little more. The agreement flag changes for the same reason: "no change" now actually occurs.
+
+| Place | Today | +1.5 °C (data-2025.1 → fixed) | +2 °C | +3 °C |
+|---|---|---|---|---|
+| Oslo | 67 % | 61 → 65 % | 56 → 61 % | 34 → 39 % |
+| Stockholm | 30 % | 28 → 27 % | 16 → 16 % | 11 → 11 % |
+| Helsinki | 50 % | 46 → 46 % | 34 → 34 % | 22 → 23 % |
+| Moscow | 87 % | 80 → 82 % | 73 → 77 % | 57 → 61 % |
+| Warsaw | 13 % | 11 → 11 % | 9 → 9 % | 5 → 5 % |
+| Berlin | 7 % | 5 → 5 % | 4 → 3 % | 2 → 2 % |
+| Prague | 10 % | 8 → 8 % | 6 → 6 % | 4 → 4 % |
+| Vienna | 10 % | 7 → 7 % | 7 → 7 % | 4 → 4 % |
+| Munich | 27 % | 21 → 22 % | 18 → 18 % | 11 → 12 % |
+| Zurich | 27 % | 21 → 22 % | 16 → 16 % | 10 → 10 % |
+| Innsbruck | 93 % | 90 → 91 % | 87 → 89 % | 78 → 81 % |
+| London | 0 % | 1 → 0 % | 0 → 0 % | 0 → 0 % |
+| Montreal | 70 % | 62 → 65 % | 52 → 53 % | 42 → 43 % |
+| Toronto | 37 % | 31 → 31 % | 27 → 27 % | 19 → 19 % |
+| Minneapolis | 63 % | 54 → 57 % | 48 → 49 % | 35 → 35 % |
+| Chicago | 33 % | 30 → 30 % | 28 → 27 % | 16 → 15 % |
+| Boston | 23 % | 21 → 20 % | 18 → 16 % | 10 → 10 % |
+| New York | 3 % | 2 → 2 % | 2 → 2 % | 1 → 1 % |
+| Denver | 40 % | 36 → 37 % | 26 → 27 % | 26 → 26 % |
+| Sapporo | 100 % | 99 → 99 % | 99 → 99 % | 95 → 96 % |
+
+**Second finding: stale land masks for GFDL-CM4 and NESM3.** These two models have no usable
+`sftlf`, so their land mask comes from the ERA5-Land mask. Their released per-model files were
+written while only the placeholder baseline existed (its GeoTIFF stores ocean as 0 %, so the
+whole Northern Hemisphere counted as land and the Southern as ocean), and `changes` never
+recomputed them because its settings check did not cover the mask. The rebuild has the right
+masks, and the new `era5_land_source` attribute makes `changes` recompute such files by itself.
+NESM3 is not in the ensemble (snow amount); for GFDL-CM4 the effect is small, a mean absolute
+change of 0.001–0.003 pp in the ensemble median (measured by rebuilding the median with
+GFDL-CM4 on its old mask). The counts `k`, `n` of all 21 models are identical to the released
+files.
+
+**Rebuild (2026-11-19, this machine, one step at a time):** `changes` 194 s (21 models),
+`validate` 127 s, `ensemble` 63 s, `export --workers 2` 115 s. Output: `interim/projections_v2/`
+(models 12 MB, ensemble, validation) and `products/projections_v2/` (`web/`: 6 layers 15.0 MB
+and 1391 point tiles 1.5 MB; `cog/` 26 MB; `manifest_fragment.json`, identical to the released
+one: same layer ids, URLs and `projections` block, so no contract change).
+
+**A data-2025.2 release from it (not built).** Into a fresh web-out, never over a released one:
+
+1. Set `export.build_counter: 2` in `config/pipeline.yaml` (unset means 1, so `data_version`
+   becomes `2025.2` and the bundle name does not collide with `whitexmas-web-data-2025.1.tar.gz`).
+2. If PR #5 (admin1) is merged by then, rebuild its statistics on the fixed projections first:
+   `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas admin1 stats`, then
+   `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas admin1 export` (`weights` does not depend on the
+   projections; `stats` rebuilds by itself because the ensemble's `settings` attribute now
+   carries the estimator).
+3. `WHITEXMAS_PROJ_VARIANT=v2 uv run whitexmas export --web-out <new empty folder>`: stages the
+   v2 projection tiles and point tiles, writes `manifest.json` with `data_version` 2025.2, and
+   writes `products/whitexmas-web-data-2025.2.tar.gz` (about the size of 2025.1, 194 MB: the
+   projection files total 16.54 MB against 16.56 MB).
+4. Publish the GitHub release `data-2025.2` and run `pages.yml` with `data_version: 2025.2`.
+
+Promoting v2 to the default folders (renaming `interim/projections_v2` and
+`products/projections_v2` over the old ones) works too and then needs no environment variable;
+keep the old folders as `*_v1` until data-2025.2 is live. Without either, the default-folder
+per-model files carry no `estimator`, so `whitexmas projections ensemble` refuses them until
+`changes` is re-run.
 
 ## Limitations
 
