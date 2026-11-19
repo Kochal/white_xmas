@@ -88,3 +88,29 @@ def test_projection_hook_is_inert_without_projections(tmp_path):
     from whitexmas.paths import DataPaths
 
     assert manifest_fragment(DataPaths(tmp_path), tmp_path / "web") is None
+
+
+def test_projection_import_guard_reraises_other_errors(monkeypatch):
+    """Only a missing projections package is tolerated; other import errors surface."""
+    import builtins
+    import importlib
+
+    import whitexmas.export as ex
+
+    real_import = builtins.__import__
+
+    def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "projections.export" or name.endswith("projections.export"):
+            raise ModuleNotFoundError("No module named 'zarr_extra'", name="zarr_extra")
+        return real_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    try:
+        importlib.reload(ex)
+    except ModuleNotFoundError as e:
+        assert e.name == "zarr_extra"
+    else:
+        raise AssertionError("import error inside projections was swallowed")
+    finally:
+        monkeypatch.setattr(builtins, "__import__", real_import)
+        importlib.reload(ex)

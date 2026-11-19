@@ -284,9 +284,8 @@ def run_job(
                 while not remote.results_ready:
                     sleep(poll)
             except Exception:
-                if remote.request_id != jid:
-                    raise
-                # The resumed job failed or expired: submit afresh on the next attempt.
+                # The job failed or expired (resumed or freshly submitted): forget it so the
+                # next attempt submits afresh instead of resuming a dead job.
                 manifest.update(job.key, job_id=None)
                 raise
             tmp = job.target.with_suffix(".part")

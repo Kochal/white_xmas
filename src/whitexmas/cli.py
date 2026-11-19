@@ -17,8 +17,10 @@ try:  # `whitexmas projections …`, once the projections package is on this bra
     from .projections.cli import app as projections_app
 
     app.add_typer(projections_app, name="projections")
-except ImportError:  # pragma: no cover - depends on which branch is checked out
-    pass
+except ModuleNotFoundError as e:  # pragma: no cover - depends on which branch is checked out
+    # Only "the projections package is absent" is expected; re-raise anything else.
+    if e.name not in ("whitexmas.projections", "whitexmas.projections.cli"):
+        raise
 
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Path to pipeline.yaml")]
 
