@@ -174,7 +174,7 @@ them, and must work without them.
 }
 ```
 
-### admin1/index.json (always loaded with the layer; 132 kB gzip)
+### admin1/index.json (always loaded with the layer; 149 kB gzip)
 
 ```jsonc
 {
@@ -188,9 +188,9 @@ them, and must work without them.
   "fields": ["id", "name", "country", "lon", "lat", "area_km2", "flags",
              "p_full", "p_then", "p_now", "change", "trend", "trend_p", "p_now_pop",
              "p_then_raw", "p_now_raw", "p_gwl1.5", "p_gwl2.0", "p_gwl3.0",
-             "type", "trend_q"],
+             "type", "trend_q", "name_local"],
   "rows": [["DE-BY", "Bavaria", "DEU", 11.3, 48.9, 70550, [], 33.0, 41.0, 26.0, -15.0,
-            -2.31, 0.012, 21.4, 70.1, 61.0, 21.0, 18.0, 11.0, "State", 0.033]],
+            -2.31, 0.012, 21.4, 70.1, 61.0, 21.0, 18.0, 11.0, "State", 0.033, "Bayern"]],
   "countries": { "DEU": { "name": "Germany", "regions": 16 } },
   "flags": { "low_res": "fewer than 3 land cells …", "…": "…" },  // texts for every flag
   "attribution": "Borders: Natural Earth (public domain). Places: GeoNames (CC BY 4.0)."
@@ -215,8 +215,10 @@ them, and must work without them.
 - `p_gwl<level>`: median projected probability (calibrated threshold); absent when
   projections are not available.
 - Any value can be `null`; `flags` (array of strings) says why.
-- Fields are looked up by name in `fields`; new fields are only ever appended (`type` and
-  `trend_q` were added in the review round of contract v1.6).
+- `name_local`: Natural Earth's local name when it differs from `name` (Bayern, Tirol,
+  Lombardia), else `""`; for search by local name. The same value as in the country files.
+- Fields are looked up by name in `fields`; new fields are only ever appended (`type`,
+  `trend_q` and `name_local` were added in the review round of contract v1.6).
 
 **Flags:** `admin0` (no admin-1 subdivision in the source: the region is the whole admin-0
 unit), `low_res` (fewer than 3 land cells), `nearest_cell` (no land cell inside: nearest land
@@ -367,7 +369,9 @@ On the pipeline workstation, one step at a time:
 | `admin1 stats` | 118 s (windows 31 s, cube pass 64 s, projections 20 s) | `interim/admin1/stats.npz` 4.9 MB |
 | `admin1 export` | 13 s | 254 web files, 24.1 MB (3.39 MB gzip); CSV 4.9 MB |
 
-Web files: `index.json` 437 kB (132 kB gzip), `boundaries.json` 5.1 MB (1.43 MB gzip), the
+Web files: `index.json` 437 kB (132 kB gzip) as built; with the review-round fields `type`,
+`trend_q` and `name_local` it is 528 kB (149 kB gzip, measured from the same statistics),
+`boundaries.json` 5.1 MB (1.43 MB gzip), the
 largest country file Latvia (119 municipalities) 69 kB gzip. The data bundle grows by 24 MB (it
 was 203 MB of the 400 MB budget).
 

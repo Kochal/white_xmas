@@ -97,7 +97,8 @@ def build_index(regions: list[dict], s: dict, info: dict) -> dict:
     for k in raw:
         fields += [f"p_then_{info['thresholds'][k]}", f"p_now_{info['thresholds'][k]}"]
     fields += [f"p_gwl{g:.1f}" for g in gwls]
-    fields += ["type", "trend_q"]  # contract v1.6 (review round): appended, additive
+    # contract v1.6 review round: appended, additive (name_local: "" where it equals name)
+    fields += ["type", "trend_q", "name_local"]
     rows = []
     for k, r in enumerate(regions):
         p = s["p"][t0, d0, :, k]
@@ -112,7 +113,7 @@ def build_index(regions: list[dict], s: dict, info: dict) -> dict:
             row += [_r(s["p"][t, d0, wt, k]), _r(s["p"][t, d0, wn, k])]
         if gwls:
             row += _rl(s["proj_p50"][:, k])
-        row += [r["type"], _r(s["trend_q"][t0, d0, k], 4)]
+        row += [r["type"], _r(s["trend_q"][t0, d0, k], 4), r.get("name_local") or ""]
         rows.append(row)
     countries = {}
     for r in regions:

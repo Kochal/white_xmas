@@ -27,9 +27,11 @@ def test_index_rows_match_fields_and_boundaries():
     assert idx["format"] == "wx-admin1-v1" and idx["contract"] == "1.6"
     fields = idx["fields"]
     assert fields[:7] == ["id", "name", "country", "lon", "lat", "area_km2", "flags"]
-    assert {"type", "trend_p", "trend_q", "p_full", "p_then"} <= set(fields)
-    ti, qi = fields.index("type"), fields.index("trend_q")
+    assert {"type", "trend_p", "trend_q", "p_full", "p_then", "name_local"} <= set(fields)
+    ti, qi, li = fields.index("type"), fields.index("trend_q"), fields.index("name_local")
     assert all(isinstance(r[ti], str) for r in idx["rows"])
+    assert all(isinstance(r[li], str) and r[li] != r[1] for r in idx["rows"])
+    assert any(r[li] for r in idx["rows"])  # e.g. Bayern for Bavaria
     assert all(r[qi] is None or 0 <= r[qi] <= 1 for r in idx["rows"])
     assert all(len(r) == len(fields) for r in idx["rows"])
     ids = [r[0] for r in idx["rows"]]

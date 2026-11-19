@@ -222,8 +222,8 @@ def test_export_writes_valid_json_and_stage_copies_it(synthetic, tmp_path):
     idx = json.loads((prod / "web/admin1/index.json").read_text(encoding="utf-8"))
     assert [r[0] for r in idx["rows"]] == [r["id"] for r in regions]
     d = dict(zip(idx["fields"], idx["rows"][3], strict=True))
-    nums = [v for k, v in d.items() if k not in ("id", "name", "country", "lon", "lat",
-                                                 "area_km2", "flags", "type")]  # fmt: skip
+    text = ("id", "name", "country", "lon", "lat", "area_km2", "flags", "type", "name_local")
+    nums = [v for k, v in d.items() if k not in text]
     assert nums == [None] * len(nums)  # no NaN, nulls
     assert "p_gwl2.0" not in idx["fields"]  # no projections in this build
     a = json.loads((prod / "web/admin1/c/AAA.json").read_text(encoding="utf-8"))
@@ -306,7 +306,7 @@ def test_trend_q_in_index_and_country_files(synthetic, tmp_path):
                              "years": [int(y) for y in yrs], "projections": {}})  # fmt: skip
     idx = build_index(meta, s, info)
     f = idx["fields"]
-    assert f[-2:] == ["type", "trend_q"]
+    assert f[-3:] == ["type", "trend_q", "name_local"]
     rows = {r[0]: dict(zip(f, r, strict=True)) for r in idx["rows"]}
     assert rows["AA-A"]["type"] == "State"
     # A is the only testable region (B is constant), so its q equals its p
