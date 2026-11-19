@@ -22,6 +22,16 @@ MAX_ALT = 5
 MAX_ALT_CHARS = 80
 SEARCH_RADIUS = 2  # cells
 
+# Administrative words that turn a place name into the name of a municipality or district
+# ("Municipio Naucalpan de Juárez", "Municipalité de Bălţi", "Stadt Zürich", "City of London").
+ADMIN_WORDS = (
+    "municipio", "municipalidad", "municipalité", "municipality", "municipiul", "municipiu",
+    "município", "comune", "comuna", "commune", "gemeinde", "stadt", "landkreis", "kreis",
+    "city of", "town of", "borough of", "county", "district", "prefecture", "province",
+    "provincia", "département", "departamento", "distrito", "okrug", "rayon", "raion",
+    "oblast", "gmina", "obshtina", "kommune", "kommun", "kunta", "shi",
+)  # fmt: skip
+
 
 def cell_index(lat: float, lon: float, res: float = 0.1, nx: int = 3600) -> tuple[int, int]:
     """Contract: i = round((lon + 180) / 0.1) mod 3600, j = round((90 - lat) / 0.1)."""
@@ -109,6 +119,26 @@ def read_alternate_names(zip_path: Path, ids: set[int]) -> dict[int, list[tuple]
     return out
 
 
+def is_admin_name(alt: str, name: str, ascii_name: str = "") -> bool:
+    """True for administrative-unit names: they start with an administrative word, or contain
+    the place name together with one ("Stadt Zürich", "Zürich District", "Sapporo-shi")."""
+    a = unicodedata.normalize("NFC", alt).casefold()
+    words = [w.strip() for w in ADMIN_WORDS]
+    if any(a.startswith(w + " ") or a.startswith(w + "-") for w in words if w):
+        return True
+    bases = {unicodedata.normalize("NFC", x).casefold() for x in (name, ascii_name) if x}
+    if any(b and b in a and a != b for b in bases):
+        rest = a
+        for b in bases:
+            rest = rest.replace(b, " ")
+        for ch in "-,()[]/":
+            rest = rest.replace(ch, " ")
+        tokens = rest.split()
+        joined = " ".join(tokens)
+        return any(w in tokens or (" " in w and w in joined) for w in words)
+    return False
+
+
 def pick_alt(name: str, ascii_name: str, langs: list[str], alts: Iterable[tuple]) -> str:
     """Up to 5 alternate names (main official language, en/de/fr/es, other official ones).
 
@@ -133,7 +163,7 @@ def pick_alt(name: str, ascii_name: str, langs: list[str], alts: Iterable[tuple]
         if len(chosen) >= MAX_ALT:
             break
         for _, _, n in sorted(by_lang.get(lang, [])):
-            if not n or key(n) in seen or "|" in n:
+            if not n or key(n) in seen or "|" in n or is_admin_name(n, name, ascii_name):
                 continue
             if len("|".join([*chosen, n])) > MAX_ALT_CHARS:
                 continue
