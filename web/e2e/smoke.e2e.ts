@@ -145,7 +145,10 @@ test('Future is offered only for definitions with projections, and the tabs foll
 
 test('methodology shows the threshold from the data', async ({ page }) => {
 	await page.goto('/methodology/');
-	await expect(page.getByTestId('dataset-threshold')).toContainText('at least 1 cm');
+	const box = page.getByTestId('dataset-threshold');
+	await expect(box).toContainText('Calibrated to weather stations');
+	await expect(box).toContainText('Raw ERA5-Land, at least 1 cm');
+	await expect(box).toContainText('Calibrated: 5 cm in ERA5-Land ≈ 1 cm at a weather station.');
 });
 
 test('a slow basemap does not leave a false "unavailable" notice', async ({ page, isMobile }) => {
@@ -159,4 +162,35 @@ test('a slow basemap does not leave a false "unavailable" notice', async ({ page
 	const notice = page.getByRole('status').filter({ hasText: 'background map is unavailable' });
 	await expect(notice).toBeVisible({ timeout: 20_000 }); // after 12 s without a basemap
 	await expect(notice).toBeHidden({ timeout: 20_000 }); // gone once the style arrives
+});
+
+test('threshold switch: calibrated by default, raw ERA5-Land on demand (contract v1.5)', async ({
+	page
+}) => {
+	await page.goto('/?at=48.1374,11.5755&place=Munich');
+	const panel = page.getByTestId('place-panel');
+	const both = panel.getByTestId('both-thresholds');
+	await expect(both).toContainText('calibrated');
+	await expect(both).toContainText('raw ERA5-Land');
+	const calibrated = await panel.getByTestId('headline').innerText();
+	await expect(panel.getByTestId('threshold-note')).toContainText('Calibrated: 5 cm');
+
+	const layersToggle = page.getByRole('button', { name: 'Map layers' });
+	if (await layersToggle.isVisible()) await layersToggle.click();
+	await expect(page.getByRole('radio', { name: 'Calibrated to stations' })).toBeChecked();
+	await expect(page.getByRole('radio', { name: 'Future' })).toHaveCount(1);
+
+	await page.getByRole('radio', { name: 'Raw ERA5-Land (1 cm)' }).check();
+	await expect(page).toHaveURL(/th=raw/);
+	await expect(panel.getByTestId('headline')).not.toHaveText(calibrated);
+	await expect(panel).toContainText('at least 1 cm');
+	// projections are calibrated only
+	await expect(page.getByRole('radio', { name: 'Future' })).toHaveCount(0);
+	await expect(page.getByTestId('future-note')).toBeVisible();
+
+	// raw maps exist for Snow on Christmas Day only: another definition falls back to calibrated
+	await page.locator('#layer-controls').getByLabel('Definition').selectOption('all_three_days');
+	await expect(page).toHaveURL(/th=calibrated/);
+	await expect(page.getByRole('radio', { name: 'Raw ERA5-Land (1 cm)' })).toBeDisabled();
+	await expect(page.getByTestId('raw-note')).toBeVisible();
 });

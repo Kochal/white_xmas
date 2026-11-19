@@ -38,6 +38,12 @@
 		manifest?.windows.find((w) => w.id === id)?.label ?? id?.replace('_', '–') ?? '';
 	const nowLabel = $derived(winLabel(meta?.windows.p_now));
 	const thenLabel = $derived(winLabel(meta?.windows.p_then));
+	/** places.json values are for the default threshold (contract v1.5). */
+	const thresholdLabel = $derived(
+		manifest && manifest.thresholds.length > 1
+			? ` (${(manifest.thresholds.find((t) => t.default) ?? manifest.thresholds[0]).label.toLowerCase()})`
+			: ''
+	);
 	const defLabel = $derived(
 		manifest?.definitions.find((d) => d.id === meta?.definition)?.label ?? 'Snow on Christmas Day'
 	);
@@ -82,7 +88,7 @@
 <div class="prose wide">
 	<h1>Rankings</h1>
 	<p class="lede">
-		{defLabel}, for places with at least
+		{defLabel}{thresholdLabel}, for places with at least
 		<label class="inline">
 			<span class="visually-hidden">Minimum population</span>
 			<select bind:value={minPop}>

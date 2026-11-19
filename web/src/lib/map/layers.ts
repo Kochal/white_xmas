@@ -2,9 +2,11 @@
  * Which map layer to show for the controls' selection (definition, kind, period), and
  * which options the controls offer. Only layers listed in the manifest are offered.
  * Future has two views (contract v1.2): projected probability and change vs today.
+ * Layers belong to a threshold (contract v1.5): calibrated (default) or raw ERA5-Land.
  */
 import {
 	defaultDefinition,
+	defaultThreshold,
 	type Layer,
 	type LayerKind,
 	type Manifest,
@@ -16,6 +18,8 @@ export interface Selection {
 	kind: LayerKind;
 	/** window id (probability, trend), "<from>__<to>" (change) or a warming level (projection) */
 	period: string;
+	/** threshold id (contract v1.5) */
+	threshold: string;
 }
 
 export interface Option {
@@ -43,12 +47,24 @@ const KIND_ORDER: LayerKind[] = ['probability', 'change', 'trend', 'projection']
 export const isFuture = (k: LayerKind): k is FutureMode =>
 	k === 'projection' || k === 'projection_change';
 
-/** Future views with at least one layer, when the manifest says projections are available. */
-export function futureModes(m: Manifest, definition?: string): FutureMode[] {
+const matches = (l: Layer, definition?: string, threshold?: string) =>
+	(definition === undefined || l.definition === definition) &&
+	(threshold === undefined || l.threshold === threshold);
+
+/**
+ * Future views with at least one layer, when the manifest says projections are available.
+ * Projections exist only for the default threshold, so a raw threshold gets none.
+ */
+export function futureModes(m: Manifest, definition?: string, threshold?: string): FutureMode[] {
 	if (!m.projections.available) return [];
 	return (['projection', 'projection_change'] as const).filter((k) =>
-		m.layers.some((l) => l.kind === k && (definition === undefined || l.definition === definition))
+		m.layers.some((l) => l.kind === k && matches(l, definition, threshold))
 	);
+}
+
+/** Whether a threshold has any map layer for a definition (raw: Snow on Christmas Day only). */
+export function thresholdHasLayers(m: Manifest, threshold: string, definition: string): boolean {
+	return m.layers.some((l) => matches(l, definition, threshold));
 }
 
 /**
@@ -56,9 +72,11 @@ export function futureModes(m: Manifest, definition?: string): FutureMode[] {
  * `projection_change` layers. With a definition, Future is offered only when that definition
  * has projection layers (contract v1: Snow on Christmas Day only).
  */
-export function availableKinds(m: Manifest, definition?: string): LayerKind[] {
+export function availableKinds(m: Manifest, definition?: string, threshold?: string): LayerKind[] {
 	return KIND_ORDER.filter((k) =>
-		k === 'projection' ? futureModes(m, definition).length > 0 : m.layers.some((l) => l.kind === k)
+		k === 'projection'
+			? futureModes(m, definition, threshold).length > 0
+			: m.layers.some((l) => l.kind === k && matches(l, undefined, threshold))
 	);
 }
 
@@ -87,8 +105,13 @@ function layerPeriod(l: Layer): string {
 	}
 }
 
-export function periodOptions(m: Manifest, kind: LayerKind, definition: string): Option[] {
-	const layers = m.layers.filter((l) => l.kind === kind && l.definition === definition);
+export function periodOptions(
+	m: Manifest,
+	kind: LayerKind,
+	definition: string,
+	threshold: string = defaultThreshold(m).id
+): Option[] {
+	const layers = m.layers.filter((l) => l.kind === kind && matches(l, definition, threshold));
 	if (kind === 'probability' || kind === 'trend') {
 		const ids = new Set(layers.map(layerPeriod));
 		return m.windows
@@ -123,8 +146,16 @@ export function normalizeSelection(m: Manifest, partial: Partial<Selection>): Se
 	const definition = m.definitions.some((d) => d.id === partial.definition)
 		? partial.definition!
 		: defaultDefinition(m).id;
-	const kinds = availableKinds(m);
-	const modes = futureModes(m, definition);
+	// a threshold without map layers for this definition falls back to the default
+	const fallback = defaultThreshold(m).id;
+	const threshold =
+		partial.threshold &&
+		m.thresholds.some((t) => t.id === partial.threshold) &&
+		thresholdHasLayers(m, partial.threshold, definition)
+			? partial.threshold
+			: fallback;
+	const kinds = availableKinds(m, undefined, threshold);
+	const modes = futureModes(m, definition, threshold);
 	let kind: LayerKind;
 	if (partial.kind && isFuture(partial.kind) && modes.length) {
 		kind = modes.includes(partial.kind) ? partial.kind : modes[0];
@@ -134,7 +165,7 @@ export function normalizeSelection(m: Manifest, partial: Partial<Selection>): Se
 				? partial.kind
 				: (kinds[0] ?? 'probability');
 	}
-	const opts = periodOptions(m, kind, definition);
+	const opts = periodOptions(m, kind, definition, threshold);
 	let period = partial.period ?? '';
 	if (!opts.some((o) => o.value === period)) {
 		const preferred =
@@ -143,7 +174,7 @@ export function normalizeSelection(m: Manifest, partial: Partial<Selection>): Se
 				: undefined;
 		period = (preferred ?? opts[0])?.value ?? '';
 	}
-	return { definition, kind, period };
+	return { definition, kind, period, threshold };
 }
 
 export function resolveLayer(m: Manifest, sel: Selection): Layer | null {
@@ -152,7 +183,8 @@ export function resolveLayer(m: Manifest, sel: Selection): Layer | null {
 			(l) =>
 				l.kind === sel.kind &&
 				l.definition === sel.definition &&
-				(sel.kind === 'projection'
+				l.threshold === sel.threshold &&
+				(isFuture(sel.kind)
 					? Math.abs(Number(layerPeriod(l)) - Number(sel.period)) < 1e-9
 					: layerPeriod(l) === sel.period)
 		) ?? null

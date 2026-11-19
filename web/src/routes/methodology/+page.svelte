@@ -29,11 +29,29 @@
 
 	{#if manifest}
 		<aside class="dataset" data-testid="dataset-threshold">
-			<p>
-				<strong>This dataset</strong> ({manifest.data_version}) counts a day as snowy when the
-				daily-mean snow depth in ERA5-Land is at least <strong>{manifest.threshold_cm} cm</strong>.
-				{#if note}{note}{/if}
-			</p>
+			{#if manifest.thresholds.length > 1}
+				<p>
+					<strong>This dataset</strong> ({manifest.data_version}) can be shown with two snow-depth
+					thresholds. Switch between them above the map; the place panel shows both values.
+				</p>
+				<ul>
+					{#each manifest.thresholds as t (t.id)}
+						<li>
+							<strong>{t.label}</strong>{t.default ? ' (default)' : ''}: {t.description ||
+								`daily-mean snow depth of at least ${t.cm} cm in ERA5-Land.`}
+							{#if thresholdNote(manifest, t)}{thresholdNote(manifest, t)}{/if}
+						</li>
+					{/each}
+				</ul>
+			{:else}
+				<p>
+					<strong>This dataset</strong> ({manifest.data_version}) counts a day as snowy when the
+					daily-mean snow depth in ERA5-Land is at least
+					<strong>{manifest.threshold_cm} cm</strong>.
+					{#if note}{note}{/if}
+				</p>
+			{/if}
+			<p class="defs-title">Definitions (with the default threshold):</p>
 			<ul>
 				{#each manifest.definitions as d (d.id)}
 					<li><strong>{d.label}</strong>: {d.description}</li>
@@ -83,6 +101,9 @@
 	}
 	.dataset p {
 		margin: 0 0 6px;
+	}
+	.defs-title {
+		margin-top: 8px !important;
 	}
 	.dataset ul {
 		margin: 0;

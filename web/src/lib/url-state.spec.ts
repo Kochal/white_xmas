@@ -7,6 +7,7 @@ describe('URL state', () => {
 			view: { zoom: 5.25, lat: 48.1, lon: 11.5 },
 			selection: {
 				definition: 'christmas_day',
+				threshold: 'raw',
 				kind: 'change' as const,
 				period: '1961_1990__1996_2025'
 			},
@@ -15,7 +16,7 @@ describe('URL state', () => {
 		};
 		const qs = serializeUrlState(state);
 		expect(qs).toBe(
-			'?def=christmas_day&layer=change&period=1961_1990__1996_2025&map=5.25%2F48.1000%2F11.5000&at=48.1400%2C11.5800&place=Munich'
+			'?def=christmas_day&th=raw&layer=change&period=1961_1990__1996_2025&map=5.25%2F48.1000%2F11.5000&at=48.1400%2C11.5800&place=Munich'
 		);
 		expect(parseUrlState(new URLSearchParams(qs))).toEqual(state);
 	});

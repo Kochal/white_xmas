@@ -1,6 +1,6 @@
 /**
  * Shareable URL state in the query string:
- * `?def=<definition>&layer=<kind>&period=<period>&map=<zoom>/<lat>/<lon>&at=<lat>,<lon>&place=<name>`
+ * `?def=<definition>&th=<threshold>&layer=<kind>&period=<period>&map=<zoom>/<lat>/<lon>&at=<lat>,<lon>&place=<name>`
  */
 import type { LayerKind } from '#lib/data/manifest.ts';
 import type { Selection } from '#lib/map/layers.ts';
@@ -33,6 +33,8 @@ export function parseUrlState(params: URLSearchParams): UrlState {
 	if (kind && KINDS.includes(kind)) state.selection.kind = kind;
 	const period = params.get('period');
 	if (period) state.selection.period = period;
+	const th = params.get('th');
+	if (th) state.selection.threshold = th;
 
 	const [z, la, lo] = (params.get('map') ?? '').split('/').map(finite);
 	if (z !== null && la !== null && lo !== null && z >= 0 && z <= 22 && Math.abs(la) <= 85.06)
@@ -51,6 +53,7 @@ export function serializeUrlState(state: UrlState): string {
 	const p = new URLSearchParams();
 	const s = state.selection;
 	if (s.definition) p.set('def', s.definition);
+	if (s.threshold) p.set('th', s.threshold);
 	if (s.kind) p.set('layer', s.kind);
 	if (s.period) p.set('period', s.period);
 	if (state.view)

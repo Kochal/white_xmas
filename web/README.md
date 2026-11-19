@@ -35,7 +35,8 @@ building for a base path.
 
 The fixture data is obviously fake: a smooth latitude gradient with made-up mountains, lakes and a
 glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 real city names
-(GeoNames) with fake values, 11 regions and 11 layers, including projections. When the
+(GeoNames) with fake values, 11 regions and 19 layers: both thresholds of contract v1.5 (a
+"calibrated" 5 cm default and the raw 1 cm view, with a made-up calibration), and projections. When the
 `data_version` contains `fixture`, the site shows a "fixture data" banner.
 `node scripts/make-fixture-data.mjs --no-projections` writes a dataset without projections.
 

@@ -9,7 +9,12 @@
 	import type { Manifest, Window } from '#lib/data/manifest.ts';
 	import type { CellLookup } from '#lib/data/source.ts';
 	import { formatPct, formatPp, frequencyLine, latLonLabel } from '#lib/format/format.ts';
-	import { thresholdNote } from '#lib/data/manifest.ts';
+	import {
+		defaultThreshold,
+		definitionText,
+		thresholdById,
+		thresholdNote
+	} from '#lib/data/manifest.ts';
 	import type { Selection } from '#lib/map/layers.ts';
 	import DecadeBars from './DecadeBars.svelte';
 	import FutureRanges from './FutureRanges.svelte';
@@ -64,7 +69,18 @@
 	);
 
 	const history = $derived(lookup?.status === 'ok' ? lookup.history : null);
-	const strip = $derived(history ? yearStrip(history, definition.id, manifest.threshold_cm) : []);
+	/** The selected threshold (contract v1.5); everything below is derived for it. */
+	const threshold = $derived(thresholdById(manifest, selection.threshold));
+	const strip = $derived(history ? yearStrip(history, definition.id, threshold.cm) : []);
+	/** The headline window's probability for every threshold the data offers ("38 % · 62 %"). */
+	const byThreshold = $derived(
+		history && headWin && manifest.thresholds.length > 1
+			? manifest.thresholds.map((t) => ({
+					t,
+					p: probability(yearStrip(history, definition.id, t.cm), headWin.start, headWin.end).p
+				}))
+			: []
+	);
 	const head = $derived<WindowProbability | null>(
 		history && headWin ? probability(strip, headWin.start, headWin.end) : null
 	);
@@ -91,7 +107,8 @@
 	);
 	const baseline = $derived.by(() => {
 		if (!history || !nowWin) return null;
-		const s = yearStrip(history, 'christmas_day', manifest.threshold_cm);
+		// projections are for the default threshold, so the "today" value is too
+		const s = yearStrip(history, 'christmas_day', defaultThreshold(manifest).cm);
 		return probability(s, nowWin.start, nowWin.end).p;
 	});
 
@@ -136,6 +153,17 @@
 						<strong>{frequencyLine(definition.label, head.p)}</strong>
 						<span class="muted">({head.nWhite} of {head.nValid} years, {headWin?.label})</span>
 					</p>
+					{#if byThreshold.length}
+						<p class="both" data-testid="both-thresholds">
+							{#each byThreshold as b, k (b.t.id)}
+								{#if k > 0}<span class="sep" aria-hidden="true">·</span>{/if}
+								<span class:current={b.t.id === threshold.id}>
+									{formatPct(b.p)}
+									{b.t.default ? 'calibrated' : 'raw ERA5-Land'}
+								</span>
+							{/each}
+						</p>
+					{/if}
 				{:else}
 					<p>
 						Not enough years with data in {headWin?.label} ({head.nValid} of {headWin
@@ -154,9 +182,11 @@
 				</select>
 			</label>
 			<p class="muted small">
-				{definition.description}
-				{#if thresholdNote(manifest)}<span data-testid="threshold-note">
-						{thresholdNote(manifest)}
+				{definitionText(manifest, definition, threshold)}
+				{#if thresholdNote(manifest, threshold)}<span data-testid="threshold-note">
+						{thresholdNote(manifest, threshold)}
+					</span>{:else if threshold.description}<span data-testid="threshold-note">
+						{threshold.description}
 					</span>{/if}
 			</p>
 
@@ -358,6 +388,19 @@
 		background: var(--surface-2);
 		border: 1px solid var(--line);
 		border-radius: 6px;
+	}
+	.both {
+		margin-top: 4px !important;
+		font-size: 0.88rem;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+	.both .sep {
+		margin: 0 0.4em;
+	}
+	.both .current {
+		color: var(--text);
+		font-weight: 600;
 	}
 	.small {
 		font-size: 0.8rem;

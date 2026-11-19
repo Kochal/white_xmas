@@ -10,6 +10,7 @@
 	import PlaceSearch from '#lib/components/PlaceSearch.svelte';
 	import Legend from '#lib/map/Legend.svelte';
 	import MapView from '#lib/map/MapView.svelte';
+	import { thresholdById, thresholdShortLabel } from '#lib/data/manifest.ts';
 	import {
 		FUTURE_MODE_LABELS,
 		KIND_LABELS,
@@ -20,6 +21,7 @@
 		warmingLevelNote,
 		periodOptions,
 		resolveLayer,
+		thresholdHasLayers,
 		type Selection
 	} from '#lib/map/layers.ts';
 	import PlacePanel from '#lib/panel/PlacePanel.svelte';
@@ -34,7 +36,12 @@
 	let ds = $state.raw<DataSource | null>(null);
 	let manifest = $state.raw<Manifest | null>(null);
 	let fatal = $state<string | null>(null);
-	let selection = $state<Selection>({ definition: '', kind: 'probability', period: '' });
+	let selection = $state<Selection>({
+		definition: '',
+		kind: 'probability',
+		period: '',
+		threshold: ''
+	});
 	let view = $state<View>(DEFAULT_VIEW);
 	let at = $state<{ lon: number; lat: number } | null>(null);
 	let label = $state<PlaceLabel | null>(null);
@@ -48,15 +55,40 @@
 
 	const layer = $derived<Layer | null>(manifest ? resolveLayer(manifest, selection) : null);
 	const kinds = $derived<LayerKind[]>(
-		manifest ? availableKinds(manifest, selection.definition) : []
+		manifest ? availableKinds(manifest, selection.definition, selection.threshold) : []
 	);
-	const modes = $derived(manifest ? futureModes(manifest, selection.definition) : []);
+	const modes = $derived(
+		manifest ? futureModes(manifest, selection.definition, selection.threshold) : []
+	);
+	const threshold = $derived(manifest ? thresholdById(manifest, selection.threshold) : null);
+	const rawThreshold = $derived(manifest?.thresholds.find((t) => !t.default) ?? null);
+	const rawUnavailable = $derived(
+		!!manifest &&
+			!!rawThreshold &&
+			!thresholdHasLayers(manifest, rawThreshold.id, selection.definition)
+	);
+	const rawDefinitions = $derived(
+		manifest && rawThreshold
+			? manifest.definitions
+					.filter((d) => thresholdHasLayers(manifest!, rawThreshold.id, d.id))
+					.map((d) => d.label)
+			: []
+	);
+	/** Projections exist for the calibrated threshold only (contract v1.5). */
+	const futureNote = $derived(
+		!!manifest &&
+			!!threshold &&
+			!threshold.default &&
+			futureModes(manifest, selection.definition).length > 0
+	);
 	const tabOf = (k: LayerKind): LayerKind => (isFuture(k) ? 'projection' : k);
 	const levelNote = $derived(
 		manifest && isFuture(selection.kind) ? warmingLevelNote(manifest, selection.period) : ''
 	);
 	const periods = $derived(
-		manifest ? periodOptions(manifest, selection.kind, selection.definition) : []
+		manifest
+			? periodOptions(manifest, selection.kind, selection.definition, selection.threshold)
+			: []
 	);
 	const colormap = $derived(
 		layer && manifest ? (manifest.colormaps[layer.colormap] ?? null) : null
@@ -75,7 +107,11 @@
 	const legendSubtitle = $derived.by(() => {
 		if (!definition) return '';
 		const period = periods.find((p) => p.value === selection.period)?.label ?? '';
-		return [period, definition.short].filter(Boolean).join(' · ');
+		const th =
+			manifest && manifest.thresholds.length > 1 && threshold
+				? `${threshold.default ? 'calibrated' : 'raw'}, ≥ ${threshold.cm} cm`
+				: '';
+		return [period, definition.short, th].filter(Boolean).join(' · ');
 	});
 	const baselineLabel = $derived(
 		manifest?.windows.find((w) => w.id === manifest?.projections.baseline_window)?.label ?? ''
@@ -286,6 +322,38 @@
 
 			{#if manifest}
 				<div id="layer-controls" class="layer-controls">
+					{#if manifest.thresholds.length > 1}
+						<fieldset class="kinds thresholds">
+							<legend class="visually-hidden">Snow depth threshold</legend>
+							{#each manifest.thresholds as t (t.id)}
+								{@const usable = thresholdHasLayers(manifest, t.id, selection.definition)}
+								<label
+									class:checked={selection.threshold === t.id}
+									class:disabled={!usable}
+									title={usable ? t.label : `${t.label}: no maps for this definition`}
+								>
+									<input
+										type="radio"
+										name="threshold"
+										value={t.id}
+										disabled={!usable}
+										checked={selection.threshold === t.id}
+										onchange={(e) => {
+											setSelection({ threshold: t.id });
+											syncRadios(e.currentTarget, (v) => v === selection.threshold);
+										}}
+									/>
+									{thresholdShortLabel(t)}
+								</label>
+							{/each}
+						</fieldset>
+						{#if rawUnavailable}
+							<p class="level-note" data-testid="raw-note">
+								Raw ERA5-Land maps exist for {rawDefinitions.join(', ') || 'another definition'} only;
+								the place panel shows both values.
+							</p>
+						{/if}
+					{/if}
 					<fieldset class="kinds">
 						<legend class="visually-hidden">Map layer</legend>
 						{#each kinds as k (k)}
@@ -308,6 +376,11 @@
 							</label>
 						{/each}
 					</fieldset>
+					{#if futureNote}
+						<p class="level-note" data-testid="future-note">
+							Future projections use the calibrated threshold.
+						</p>
+					{/if}
 					{#if isFuture(selection.kind) && modes.length > 1}
 						<fieldset class="kinds modes">
 							<legend class="visually-hidden">Future view</legend>
@@ -378,6 +451,7 @@
 				subtitle={legendSubtitle}
 				{glaciers}
 				{baselineLabel}
+				{threshold}
 			/>
 		</div>
 	{/if}
@@ -506,6 +580,13 @@
 	}
 	.modes {
 		margin-top: 6px;
+	}
+	.thresholds {
+		margin-bottom: 6px;
+	}
+	.kinds label.disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
 	}
 	.level-note {
 		margin: 6px 2px 0;

@@ -26,7 +26,9 @@ const OUT = path.resolve(
 
 const RES = 0.1;
 const TC = 50; // cells per tile side
-const THRESHOLD = 1;
+// contract v1.5: a station-calibrated default threshold and the raw ERA5-Land 1 cm view
+const THRESHOLD = 5;
+const RAW_THRESHOLD = 1;
 
 // --- which 5° point tiles exist: central Europe and the North American Great Lakes
 const TILES = [];
@@ -67,18 +69,18 @@ for (const [tx, ty] of TILES) {
 
 // --- derivations (deliberately simple; the site has its own, tested implementation)
 const DEFINITIONS = {
-	christmas_day: (d) => (d[1] === NODATA ? null : d[1] >= THRESHOLD),
+	christmas_day: (d, th) => (d[1] === NODATA ? null : d[1] >= th),
 	// as the pipeline: unknown when any needed day is missing
-	all_three_days: (d) => (d.includes(NODATA) ? null : d.every((v) => v >= THRESHOLD)),
-	any_day: (d) => (d.includes(NODATA) ? null : d.some((v) => v >= THRESHOLD))
+	all_three_days: (d, th) => (d.includes(NODATA) ? null : d.every((v) => v >= th)),
+	any_day: (d, th) => (d.includes(NODATA) ? null : d.some((v) => v >= th))
 };
 
-function whiteSeries(key, k, def) {
+function whiteSeries(key, k, def, th = THRESHOLD) {
 	const body = cube.get(key);
 	const out = [];
 	for (let y = 0; y < N_YEARS; y++) {
 		const o = (k * N_YEARS + y) * N_DAYS;
-		out.push(DEFINITIONS[def]([body[o], body[o + 1], body[o + 2]]));
+		out.push(DEFINITIONS[def]([body[o], body[o + 1], body[o + 2]], th));
 	}
 	return out;
 }
@@ -341,32 +343,30 @@ console.log(`  points/  ${TILE_KEYS.size} tiles`);
 
 // map layers
 const layers = [];
-const probLayer = (def, w) => {
-	const id = `prob__${def}__${w}`;
+const TH = { calibrated: THRESHOLD, raw: RAW_THRESHOLD };
+/** Layer ids for the non-default threshold carry the suffix __raw (contract v1.5). */
+const suffix = (th) => (th === 'calibrated' ? '' : `__${th}`);
+const probLayer = (def, w, th = 'calibrated') => {
+	const id = `prob__${def}__${w}${suffix(th)}`;
 	const grid = buildGrid((key, k) => ({
-		value: probability(whiteSeries(key, k, def), win[w].start, win[w].end)
+		value: probability(whiteSeries(key, k, def, TH[th]), win[w].start, win[w].end)
 	}));
 	layers.push({
 		id,
 		kind: 'probability',
 		definition: def,
 		window: w,
+		threshold: th,
 		url: writeLayer(id, grid, 'probability'),
 		colormap: 'probability',
 		minzoom: 0,
 		maxzoom: 6
 	});
 };
-probLayer('christmas_day', '1996_2025');
-probLayer('christmas_day', '1961_1990');
-probLayer('christmas_day', '1950_2025');
-probLayer('christmas_day', '2016_2025');
-probLayer('all_three_days', '1996_2025');
-probLayer('any_day', '1996_2025');
-{
-	const id = 'change__christmas_day__1961_1990__1996_2025';
+const changeLayer = (th = 'calibrated') => {
+	const id = `change__christmas_day__1961_1990__1996_2025${suffix(th)}`;
 	const grid = buildGrid((key, k) => {
-		const s = whiteSeries(key, k, 'christmas_day');
+		const s = whiteSeries(key, k, 'christmas_day', TH[th]);
 		return { value: probability(s, 1996, 2025) - probability(s, 1961, 1990) };
 	});
 	layers.push({
@@ -375,16 +375,17 @@ probLayer('any_day', '1996_2025');
 		definition: 'christmas_day',
 		from: '1961_1990',
 		to: '1996_2025',
+		threshold: th,
 		url: writeLayer(id, grid, 'change'),
 		colormap: 'change',
 		minzoom: 0,
 		maxzoom: 6
 	});
-}
-{
-	const id = 'trend__christmas_day__1950_2025';
+};
+const trendLayer = (th = 'calibrated') => {
+	const id = `trend__christmas_day__1950_2025${suffix(th)}`;
 	const grid = buildGrid((key, k) => {
-		const t = trend(whiteSeries(key, k, 'christmas_day'));
+		const t = trend(whiteSeries(key, k, 'christmas_day', TH[th]));
 		return { value: t.perDecade, insignificant: !t.significant };
 	});
 	layers.push({
@@ -392,13 +393,29 @@ probLayer('any_day', '1996_2025');
 		kind: 'trend',
 		definition: 'christmas_day',
 		window: '1950_2025',
+		threshold: th,
 		url: writeLayer(id, grid, 'trend'),
 		colormap: 'trend',
 		hatch_insignificant: true,
 		minzoom: 0,
 		maxzoom: 6
 	});
-}
+};
+// default (calibrated) threshold: the full fixture set
+probLayer('christmas_day', '1996_2025');
+probLayer('christmas_day', '1961_1990');
+probLayer('christmas_day', '1950_2025');
+probLayer('christmas_day', '2016_2025');
+probLayer('all_three_days', '1996_2025');
+probLayer('any_day', '1996_2025');
+changeLayer();
+trendLayer();
+// raw threshold: the contract's minimum set, Snow on Christmas Day only
+probLayer('christmas_day', '1950_2025', 'raw');
+probLayer('christmas_day', '1961_1990', 'raw');
+probLayer('christmas_day', '1996_2025', 'raw');
+changeLayer('raw');
+trendLayer('raw');
 
 // projections (wx-proj-v1)
 // approx is derived by the pipeline (contract v1.3) and can be long; fixtures include one
@@ -446,6 +463,7 @@ if (withProjections) {
 			kind: 'projection',
 			definition: 'christmas_day',
 			warming_level: lv.gwl,
+			threshold: 'calibrated',
 			url: writeLayer(id, grid, 'probability'),
 			colormap: 'probability',
 			minzoom: 0,
@@ -463,6 +481,7 @@ if (withProjections) {
 			kind: 'projection_change',
 			definition: 'christmas_day',
 			warming_level: lv.gwl,
+			threshold: 'calibrated',
 			url: writeLayer(cid, cgrid, 'change'),
 			colormap: 'change',
 			hatch_disagreement: true,
@@ -598,6 +617,7 @@ for (const [name, ascii, country, admin1, alt, lat, lon, pop] of CITIES) {
 		continue;
 	}
 	const s = whiteSeries(cell.key, cell.k, 'christmas_day');
+	const sRaw = whiteSeries(cell.key, cell.k, 'christmas_day', RAW_THRESHOLD);
 	const t = trend(s);
 	rows.push([
 		name,
@@ -611,7 +631,10 @@ for (const [name, ascii, country, admin1, alt, lat, lon, pop] of CITIES) {
 		r1(probability(s, 1950, 2025)),
 		r1(probability(s, 1961, 1990)),
 		r1(probability(s, 1996, 2025)),
-		t.significant ? r1(t.perDecade) : null
+		t.significant ? r1(t.perDecade) : null,
+		// optional v1.5 fields: the raw threshold's values
+		r1(probability(sRaw, 1961, 1990)),
+		r1(probability(sRaw, 1996, 2025))
 	]);
 }
 writeFileSync(
@@ -629,7 +652,9 @@ writeFileSync(
 			'p_full',
 			'p_then',
 			'p_now',
-			'trend'
+			'trend',
+			'p_then_raw',
+			'p_now_raw'
 		],
 		definition: 'christmas_day',
 		windows: { p_full: '1950_2025', p_then: '1961_1990', p_now: '1996_2025' },
@@ -675,6 +700,23 @@ const manifest = {
 	build_hash: 'fixture',
 	years: { first: FIRST_YEAR, last: LAST_YEAR },
 	threshold_cm: THRESHOLD,
+	station_equivalent_cm: 1,
+	thresholds: [
+		{
+			id: 'calibrated',
+			cm: THRESHOLD,
+			default: true,
+			station_equivalent_cm: 1,
+			label: 'Calibrated to weather stations',
+			description: `At least ${THRESHOLD} cm of snow in ERA5-Land, which matches at least 1 cm measured at weather stations (FIXTURE: made-up calibration).`
+		},
+		{
+			id: 'raw',
+			cm: RAW_THRESHOLD,
+			label: `Raw ERA5-Land, at least ${RAW_THRESHOLD} cm`,
+			description: `At least ${RAW_THRESHOLD} cm of snow in ERA5-Land as published (FIXTURE).`
+		}
+	],
 	attribution:
 		'FIXTURE DATA — fake values for development only. Place names: GeoNames (CC BY 4.0).',
 	definitions: [
@@ -682,21 +724,20 @@ const manifest = {
 			id: 'christmas_day',
 			label: 'Snow on Christmas Day',
 			short: 'Dec 25',
-			description: 'Daily-mean snow depth on 25 December is at least 1 cm.',
+			description: `Daily-mean snow depth on 25 December is at least ${THRESHOLD} cm.`,
 			default: true
 		},
 		{
 			id: 'all_three_days',
 			label: 'Snow on all three days (DWD)',
 			short: 'Dec 24–26',
-			description: 'Daily-mean snow depth is at least 1 cm on each of 24, 25 and 26 December.'
+			description: `Daily-mean snow depth is at least ${THRESHOLD} cm on each of 24, 25 and 26 December.`
 		},
 		{
 			id: 'any_day',
 			label: 'Snow on any of the three days',
 			short: 'any day',
-			description:
-				'Daily-mean snow depth is at least 1 cm on at least one of 24, 25 or 26 December.'
+			description: `Daily-mean snow depth is at least ${THRESHOLD} cm on at least one of 24, 25 or 26 December.`
 		}
 	],
 	windows,

@@ -32,6 +32,8 @@ interface LayerBase {
 	colormap: string;
 	minzoom?: number;
 	maxzoom?: number;
+	/** Threshold id (contract v1.5); filled with the default threshold's id when absent. */
+	threshold: string;
 }
 
 export interface ProbabilityLayer extends LayerBase {
@@ -71,6 +73,18 @@ const LAYER_KINDS: readonly LayerKind[] = [
 	'projection_change'
 ];
 
+/** Contract v1.5: a snow-depth threshold the site can show (e.g. calibrated 5 cm, raw 1 cm). */
+export interface Threshold {
+	id: string;
+	/** whole centimetres of daily-mean snow depth in ERA5-Land */
+	cm: number;
+	default?: boolean;
+	/** set when `cm` is calibrated to match this depth at weather stations */
+	station_equivalent_cm?: number;
+	label: string;
+	description: string;
+}
+
 export interface Colormap {
 	unit: string;
 	domain: [number, number];
@@ -97,7 +111,10 @@ export interface Manifest {
 	built: string;
 	build_hash: string;
 	years: { first: number; last: number };
+	/** The default threshold in cm (kept for v1.4 readers; see `thresholds`). */
 	threshold_cm: number;
+	/** Thresholds the data offers; one entry built from threshold_cm when the manifest has none. */
+	thresholds: Threshold[];
 	/**
 	 * Optional: the station snow depth the threshold corresponds to, when the threshold is
 	 * calibrated (e.g. 4 cm in ERA5-Land ≈ 1 cm at a weather station).
@@ -149,6 +166,12 @@ export function parseManifest(raw: unknown): Manifest {
 	const layers = (raw.layers as Layer[]).filter(
 		(l) => isObject(l) && LAYER_KINDS.includes(l.kind) && typeof l.url === 'string'
 	);
+	const thresholdCm = typeof raw.threshold_cm === 'number' ? raw.threshold_cm : 1;
+	const stationCm =
+		typeof raw.station_equivalent_cm === 'number' ? raw.station_equivalent_cm : undefined;
+	const thresholds = parseThresholds(raw.thresholds, thresholdCm, stationCm);
+	const defaultId = (thresholds.find((t) => t.default) ?? thresholds[0]).id;
+	for (const l of layers) if (typeof l.threshold !== 'string') l.threshold = defaultId;
 	const points = raw.points;
 	if (!isObject(points) || typeof points.index !== 'string')
 		throw new ManifestError('"points.index" is missing');
@@ -165,7 +188,8 @@ export function parseManifest(raw: unknown): Manifest {
 
 	return {
 		...(raw as unknown as Manifest),
-		threshold_cm: typeof raw.threshold_cm === 'number' ? raw.threshold_cm : 1,
+		threshold_cm: thresholdCm,
+		thresholds,
 		attribution: typeof raw.attribution === 'string' ? raw.attribution : '',
 		definitions,
 		windows,
@@ -187,11 +211,64 @@ export async function loadManifest(
 	return parseManifest(await res.json());
 }
 
-/** "Calibrated: 4 cm in ERA5-Land ≈ 1 cm at a weather station.", or null without calibration. */
-export function thresholdNote(m: Manifest): string | null {
-	const s = m.station_equivalent_cm;
+function parseThresholds(raw: unknown, thresholdCm: number, stationCm?: number): Threshold[] {
+	const list = Array.isArray(raw)
+		? (raw as Partial<Threshold>[]).filter(
+				(t): t is Threshold => isObject(t) && typeof t.id === 'string' && typeof t.cm === 'number'
+			)
+		: [];
+	if (list.length) {
+		const out = list.map((t) => ({
+			...t,
+			label: t.label ?? `${t.cm} cm`,
+			description: t.description ?? ''
+		}));
+		if (!out.some((t) => t.default)) out[0] = { ...out[0], default: true };
+		return out;
+	}
+	// v1.4 and earlier: a single threshold
+	return [
+		{
+			id: 'default',
+			cm: thresholdCm,
+			default: true,
+			station_equivalent_cm: stationCm,
+			label: stationCm !== undefined ? 'Calibrated to weather stations' : `${thresholdCm} cm`,
+			description: ''
+		}
+	];
+}
+
+export function defaultThreshold(m: Manifest): Threshold {
+	return m.thresholds.find((t) => t.default) ?? m.thresholds[0];
+}
+
+export function thresholdById(m: Manifest, id: string | undefined): Threshold {
+	return m.thresholds.find((t) => t.id === id) ?? defaultThreshold(m);
+}
+
+/** Short label for the switch: "Calibrated to stations" or "Raw ERA5-Land (1 cm)". */
+export function thresholdShortLabel(t: Threshold): string {
+	return t.station_equivalent_cm !== undefined
+		? 'Calibrated to stations'
+		: `Raw ERA5-Land (${t.cm} cm)`;
+}
+
+/** "Calibrated: 5 cm in ERA5-Land ≈ 1 cm at a weather station.", or null without calibration. */
+export function thresholdNote(m: Manifest, t: Threshold = defaultThreshold(m)): string | null {
+	const s = t.station_equivalent_cm;
 	if (typeof s !== 'number' || !Number.isFinite(s)) return null;
-	return `Calibrated: ${m.threshold_cm} cm in ERA5-Land ≈ ${s} cm at a weather station.`;
+	return `Calibrated: ${t.cm} cm in ERA5-Land ≈ ${s} cm at a weather station.`;
+}
+
+/**
+ * A definition's description for a threshold: the manifest writes it for the default
+ * threshold ("… at least 5 cm."), so the number is rewritten for another one.
+ */
+export function definitionText(m: Manifest, d: Definition, t: Threshold): string {
+	const def = defaultThreshold(m);
+	if (t.cm === def.cm) return d.description;
+	return d.description.replace(new RegExp(`\\b${def.cm}(\\s?)cm\\b`, 'g'), `${t.cm}$1cm`);
 }
 
 export function defaultDefinition(m: Manifest): Definition {

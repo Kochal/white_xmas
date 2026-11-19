@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Colormap, Layer } from '#lib/data/manifest.ts';
+	import type { Colormap, Layer, Threshold } from '#lib/data/manifest.ts';
 	import { inTenYears, signed } from '#lib/format/format.ts';
 
 	interface Props {
@@ -10,9 +10,19 @@
 		glaciers: boolean;
 		/** Label of the projections' baseline window (manifest.projections.baseline_window). */
 		baselineLabel?: string;
+		/** The selected snow-depth threshold (contract v1.5). */
+		threshold?: Threshold | null;
 	}
 
-	let { layer, colormap, title, subtitle, glaciers, baselineLabel = '' }: Props = $props();
+	let {
+		layer,
+		colormap,
+		title,
+		subtitle,
+		glaciers,
+		baselineLabel = '',
+		threshold = null
+	}: Props = $props();
 	let more = $state(false);
 
 	const gradient = $derived.by(() => {
@@ -47,7 +57,7 @@
 		switch (layer.kind) {
 			case 'probability':
 			case 'projection':
-				return `Share of years with snow on the ground. 30% means ${inTenYears(30)}.`;
+				return `Share of years with ${depthPhrase}. 30% means ${inTenYears(30)}.`;
 			case 'change':
 				return 'Change in percentage points (pp) between the two periods.';
 			case 'trend':
@@ -56,6 +66,15 @@
 				return `Projected change in percentage points (pp) compared with today${baselineLabel ? ` (${baselineLabel})` : ''}.`;
 		}
 	});
+	const depthPhrase = $derived(
+		threshold
+			? `at least ${threshold.cm} cm of snow in ERA5-Land${
+					threshold.station_equivalent_cm !== undefined
+						? ` (≈ ${threshold.station_equivalent_cm} cm at a weather station)`
+						: ''
+				}`
+			: 'snow on the ground'
+	);
 	// Colours come from the manifest, so the ends of the scale are named by meaning, not colour.
 	const signedScale = $derived(
 		layer?.kind === 'change' || layer?.kind === 'trend' || layer?.kind === 'projection_change'

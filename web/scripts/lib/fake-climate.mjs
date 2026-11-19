@@ -76,12 +76,16 @@ export function fakeDepth(i, j, lon, lat, year, day) {
 		-1.5 + 0.17 * (lat - 45) + 2.3 * elev + maritime + continental - 0.022 * (year - FIRST_YEAR);
 	const anomaly = 1.3 * normal(region(lon), year);
 	const u = Math.min(1 - 1e-9, Math.max(1e-9, h32(i, j, year)));
-	const white25 = latent + anomaly + 0.9 * Math.log(u / (1 - u)) > 0;
+	const score = latent + anomaly + 0.9 * Math.log(u / (1 - u));
+	const white25 = score > 0;
+	// a thin cover (1–4 cm) in near-miss years: white at 1 cm, green at a 5 cm threshold
+	const thin = !white25 && score > -1.6;
 	const depth = Math.min(
 		253,
 		Math.round(2 + 40 * elev + 15 * h32(i, j, year, 7) + 8 * Math.max(0, latent + anomaly))
 	);
-	if (day === 1) return white25 ? depth : 0;
+	if (day === 1)
+		return white25 ? Math.max(5, depth) : thin ? 1 + Math.floor(4 * h32(i, j, year, 31)) : 0;
 	const flip = h32(i, j, year, day + 11);
 	if (white25) return flip < 0.85 ? Math.max(1, Math.round(depth * (day === 0 ? 0.9 : 1.05))) : 0;
 	return flip < (day === 0 ? 0.1 : 0.14) ? 1 + Math.floor(4 * h32(i, j, year, day + 21)) : 0;
