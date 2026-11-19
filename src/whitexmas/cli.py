@@ -106,13 +106,19 @@ def export(
     workers: Annotated[
         int | None, typer.Option(help="Tile render processes (default: CPUs - 2, max 8)")
     ] = None,
+    max_layers: Annotated[
+        int | None,
+        typer.Option(help="Render at most N map layers, then stop; re-run to resume"),
+    ] = None,
     verbose: bool = False,
 ) -> None:
     """Export web data (manifest, PMTiles, point tiles, places, regions), COGs and the bundle."""
     from .export import export_all
 
     cfg, paths = _setup(config, verbose)
-    export_all(cfg, paths, web_out, force=force, workers=workers)
+    res = export_all(cfg, paths, web_out, force=force, workers=workers, max_layers=max_layers)
+    if res.get("remaining_layers"):
+        typer.echo(f"{res['remaining_layers']} layers left; run export again to continue")
 
 
 @app.command()
@@ -144,7 +150,14 @@ def build(
         download(config=config, years=None, parallel=6, static_only=False, verbose=verbose)
     ingest(config=config, force=False, verbose=verbose)
     indicators(config=config, force=False, verbose=verbose)
-    export(config=config, web_out=web_out, force=False, workers=workers, verbose=verbose)
+    export(
+        config=config,
+        web_out=web_out,
+        force=False,
+        workers=workers,
+        max_layers=None,
+        verbose=verbose,
+    )
 
 
 if __name__ == "__main__":
