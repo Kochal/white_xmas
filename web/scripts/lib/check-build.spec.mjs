@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -88,5 +89,58 @@ describe('checkBuild', () => {
 		expect(checkBuild({ dir: empty, base: '' })).toEqual([
 			expect.stringContaining('no text files')
 		]);
+	});
+	it('allows other github.io links on a custom domain, but not kochal.github.io', () => {
+		const site = 'https://snowatchristmas.com';
+		const ok = build({
+			'index.html': page(site, '<a href="https://maplibre.github.io/maplibre-gl-js/docs/">docs</a>')
+		});
+		expect(checkBuild({ dir: ok, base: '', siteUrl: site })).toEqual([]);
+		const bad = build({
+			'index.html': page(site, '<a href="https://Kochal.github.io/x/">old</a>')
+		});
+		expect(checkBuild({ dir: bad, base: '', siteUrl: site })).toEqual([
+			expect.stringContaining('kochal.github.io')
+		]);
+	});
+
+	it('flags root-absolute data and asset URLs in scripts of a base-path build', () => {
+		const site = 'https://kochal.github.io/white_xmas';
+		const html = page(site, '<a href="/white_xmas/">x</a>');
+		const ok = build({
+			'index.html': html,
+			'_app/a.js': 'const d=`/white_xmas/data`; const x=a+"data/"+b; const y="data/x"'
+		});
+		expect(checkBuild({ dir: ok, base: '/white_xmas', siteUrl: site })).toEqual([]);
+		for (const literal of ['"/data/x.json"', "'/_app/immutable/y.js'", '`/data/${p}`']) {
+			const bad = build({ 'index.html': html, '_app/a.js': `fetch(${literal})` });
+			expect(checkBuild({ dir: bad, base: '/white_xmas', siteUrl: site })).toEqual([
+				expect.stringContaining('root-absolute URL in a base-path build')
+			]);
+		}
+	});
+});
+
+describe('check-build CLI', () => {
+	const cli = path.join(import.meta.dirname, '..', 'check-build.mjs');
+	const run = (args, env = {}) =>
+		spawnSync(process.execPath, [cli, ...args], {
+			encoding: 'utf8',
+			env: { ...process.env, BASE_PATH: '', PUBLIC_SITE_URL: '', ...env }
+		});
+
+	it('fails when no site URL is given, instead of skipping the tag checks', () => {
+		const dir = build({ 'index.html': page('https://snowatchristmas.com') });
+		const r = run(['--dir', dir]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain('no site URL');
+	});
+
+	it('takes the site URL from PUBLIC_SITE_URL and passes a clean build', () => {
+		const site = 'https://snowatchristmas.com';
+		const dir = build({ 'index.html': page(site) });
+		const r = run(['--dir', dir], { PUBLIC_SITE_URL: site });
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain('build check ok');
 	});
 });

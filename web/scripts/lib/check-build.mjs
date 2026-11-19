@@ -8,6 +8,9 @@ const TEXT_EXT = new Set(['.html', '.js', '.mjs', '.css', '.json', '.txt', '.xml
 /** The base path the site was deployed under before the custom domain (see docs/custom-domain.md). */
 export const LEGACY_BASE = '/white_xmas';
 
+/** The github.io host the site was served from before the custom domain. */
+export const LEGACY_HOST = 'kochal.github.io';
+
 /** Repo links such as https://github.com/Kochal/white_xmas legitimately contain "/white_xmas". */
 const REPO_LINK = /github\.com\/[^/\s"'<>]+\/white_xmas/gi;
 
@@ -56,8 +59,9 @@ export function checkBuild({ dir, base = '', siteUrl }) {
 	const skip = new Set([path.join(dir, 'data')]);
 	const siteOrigin = siteUrl ? originOf(siteUrl) : null;
 	const siteHost = siteOrigin ? new URL(siteOrigin).hostname : null;
-	// A custom domain: no github.io URL may remain anywhere (they'd bypass the domain).
-	const forbidGithubIo = !!siteHost && !siteHost.endsWith('.github.io');
+	// A custom domain: no URL on the old github.io host may remain anywhere (it would bypass the
+	// domain). Other github.io links, such as a library's docs, are fine.
+	const forbidLegacyHost = !!siteHost && !siteHost.endsWith('.github.io');
 
 	let files = 0;
 	let pages = 0;
@@ -73,16 +77,22 @@ export function checkBuild({ dir, base = '', siteUrl }) {
 				problems.push(`${rel}: hard-coded "${LEGACY_BASE}": …${s}…`);
 		}
 
-		// 2. a custom-domain build must not point at the github.io host
-		if (forbidGithubIo) {
-			const m = /[a-z0-9-]+\.github\.io/i.exec(text);
-			if (m) problems.push(`${rel}: absolute github.io URL "${m[0]}" with site URL ${siteUrl}`);
+		// 2. a custom-domain build must not point at the old github.io host
+		if (forbidLegacyHost && text.toLowerCase().includes(LEGACY_HOST)) {
+			problems.push(`${rel}: absolute URL on ${LEGACY_HOST} with site URL ${siteUrl}`);
+		}
+
+		// 3a. in a base-path build the scripts must not build root-absolute data or asset URLs
+		//     (a string literal starting "/data/" or "/_app/" would escape the base)
+		if (base !== '' && !rel.endsWith('.html')) {
+			const m = /["'`]\/(?:data|_app)\//.exec(text);
+			if (m) problems.push(`${rel}: root-absolute URL in a base-path build: …${m[0]}…`);
 		}
 
 		if (!rel.endsWith('.html')) continue;
 		pages++;
 
-		// 3. root-absolute links in a base-path build must stay under the base
+		// 3b. root-absolute links in a base-path build must stay under the base
 		if (base !== '') {
 			for (const m of text.matchAll(/\b(?:href|src)="(\/(?!\/)[^"]*)"/g)) {
 				const url = m[1];
