@@ -2,6 +2,12 @@
 	import { onMount, tick } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { DATA_BASE } from '#lib/config.ts';
+	import type {
+		Admin1Index,
+		BoundaryCollection,
+		CountryFile,
+		RegionRow
+	} from '#lib/data/admin1.ts';
 	import type { Layer, LayerKind, Manifest } from '#lib/data/manifest.ts';
 	import type { Place } from '#lib/data/places.ts';
 	import type { CellLookup, DataSource } from '#lib/data/source.ts';
@@ -27,7 +33,12 @@
 	import PlacePanel from '#lib/panel/PlacePanel.svelte';
 	import type { PlaceLabel } from '#lib/panel/types.ts';
 	import Seo from '#lib/components/Seo.svelte';
-	import { parseUrlState, serializeUrlState, type MapView as View } from '#lib/url-state.ts';
+	import {
+		parseRegionHash,
+		parseUrlState,
+		serializeUrl,
+		type MapView as View
+	} from '#lib/url-state.ts';
 
 	const DEFAULT_VIEW: View = { zoom: 3, lat: 48, lon: 10 };
 	const ERA5_ATTRIBUTION =
@@ -52,6 +63,29 @@
 	let controlsOpen = $state(false);
 	let ready = $state(false);
 	let mapView = $state<ReturnType<typeof MapView> | null>(null);
+
+	// states and provinces (contract v1.6): all of it loads lazily, never with the first paint
+	let regionsOn = $state(false);
+	let regionIndex = $state.raw<Admin1Index | null>(null);
+	let boundaries = $state.raw<BoundaryCollection | null>(null);
+	let regionId = $state<string | null>(null);
+	let regionCountry = $state.raw<CountryFile | null>(null);
+	let regionError = $state<string | null>(null);
+	let regionsLoading = $state(false);
+	let regionsNote = $state<string | null>(null);
+	/** The region panel's code (charts, statistics) loads with the first region, not the page. */
+	let RegionPanel = $state.raw<typeof import('#lib/panel/RegionPanel.svelte').default | null>(null);
+	const hasRegions = $derived(!!manifest?.admin1?.available);
+	const regionRow = $derived<RegionRow | null>(
+		regionIndex && regionId ? (regionIndex.rows.find((r) => r.id === regionId) ?? null) : null
+	);
+	const hasPanel = $derived(!!at || !!regionId);
+	const regionsProp = $derived({
+		boundaries,
+		rows: regionIndex?.rows ?? [],
+		show: regionsOn,
+		selected: regionId
+	});
 
 	const layer = $derived<Layer | null>(manifest ? resolveLayer(manifest, selection) : null);
 	const kinds = $derived<LayerKind[]>(
@@ -122,6 +156,7 @@
 	let lookupSeq = 0;
 	async function select(lon: number, lat: number, placeLabel: PlaceLabel | null, nearestLand = 0) {
 		if (!ds) return;
+		dropRegion();
 		at = { lon, lat };
 		label = placeLabel;
 		loading = true;
@@ -175,7 +210,84 @@
 		label = null;
 		lookup = null;
 		lookupError = null;
+		dropRegion();
 		panelExpanded = false;
+	}
+
+	function dropRegion() {
+		regionSeq++;
+		regionId = null;
+		regionCountry = null;
+		regionError = null;
+	}
+
+	/** Loads the index and, for the map, the outlines; the first use of the layer pays for them. */
+	async function loadRegionLayer() {
+		if (!ds || regionsLoading || (regionIndex && boundaries)) return;
+		regionsLoading = true;
+		regionsNote = null;
+		try {
+			const [index, outlines] = await Promise.all([ds.admin1Index(), ds.admin1Boundaries()]);
+			regionIndex = index;
+			boundaries = outlines;
+		} catch (e) {
+			regionsOn = false;
+			regionsNote = `The state and province borders could not be loaded: ${e instanceof Error ? e.message : String(e)}`;
+		} finally {
+			regionsLoading = false;
+		}
+	}
+
+	function setRegionsOn(on: boolean) {
+		regionsOn = on;
+		if (on) loadRegionLayer();
+		else regionsNote = null;
+	}
+
+	let regionSeq = 0;
+	/**
+	 * Selects a state or province: its panel opens at once from the index row, and the
+	 * country file with the statistics follows. `fly` zooms to it (search, deep link).
+	 */
+	async function selectRegion(id: string, opts: { fly: boolean }) {
+		if (!ds) return;
+		const seq = ++regionSeq;
+		try {
+			const index = regionIndex ?? (await ds.admin1Index());
+			if (seq !== regionSeq) return;
+			regionIndex = index;
+			const row = index.rows.find((r) => r.id === id);
+			if (!row) {
+				// a stale or mistyped link: say nothing is selected rather than show an empty panel
+				regionId = null;
+				regionsNote = `There is no state or province “${id}” in this dataset.`;
+				return;
+			}
+			at = null;
+			label = null;
+			lookup = null;
+			lookupError = null;
+			import('#lib/panel/RegionPanel.svelte').then((m) => (RegionPanel = m.default));
+			regionId = id;
+			regionCountry = null;
+			regionError = null;
+			regionsNote = null;
+			if (!regionsOn) setRegionsOn(true);
+			else loadRegionLayer();
+			if (opts.fly) mapView?.flyTo(row.lon, row.lat, 4);
+			controlsOpen = false;
+			const country = await ds.admin1Country(row.country);
+			if (seq !== regionSeq) return;
+			regionCountry = country;
+			const detail = country.regions.find((r) => r.id === id);
+			if (opts.fly && detail?.bbox) mapView?.fitBounds(detail.bbox);
+		} catch (e) {
+			if (seq === regionSeq) regionError = e instanceof Error ? e.message : String(e);
+		}
+	}
+
+	function pickRegion(row: RegionRow) {
+		selectRegion(row.id, { fly: true });
 	}
 
 	/**
@@ -198,17 +310,19 @@
 	// keep the URL in sync (debounced), so every view is shareable
 	let urlTimer: ReturnType<typeof setTimeout> | undefined;
 	$effect(() => {
-		const qs = serializeUrlState({
+		const qs = serializeUrl({
 			view,
 			selection,
 			at: at ?? undefined,
-			place: label?.name
+			place: label?.name,
+			regions: regionsOn,
+			region: regionId ?? undefined
 		});
 		if (!ready) return;
 		clearTimeout(urlTimer);
 		urlTimer = setTimeout(() => {
 			const url = `${window.location.pathname}${qs}`;
-			if (url !== `${window.location.pathname}${window.location.search}`) {
+			if (url !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
 				// The URL comes from window.location.pathname, which already carries the base path.
 				// eslint-disable-next-line svelte/no-navigation-without-resolve
 				goto(url, { replace: true, shallow: true }).catch(() => {});
@@ -217,7 +331,7 @@
 	});
 
 	onMount(() => {
-		const url = parseUrlState(new URLSearchParams(window.location.search));
+		const url = parseUrlState(new URLSearchParams(window.location.search), window.location.hash);
 		if (url.view) view = url.view;
 		getDataSource()
 			.then(async (source) => {
@@ -227,6 +341,9 @@
 				await tick();
 				ready = true;
 				prefetchPlaces(source);
+				if (source.hasAdmin1 && url.regions) setRegionsOn(true);
+				// a region link works on reload; a shared map view wins over zooming to the region
+				if (source.hasAdmin1 && url.region) selectRegion(url.region, { fly: !url.view });
 				if (url.at) {
 					// Name the place only if it is a places.json entry at that spot; a link can carry
 					// any text, so otherwise the panel shows the coordinates.
@@ -262,7 +379,13 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (e.key === 'Escape' && at && !(e.target instanceof HTMLInputElement)) closePanel();
+		if (e.key === 'Escape' && hasPanel && !(e.target instanceof HTMLInputElement)) closePanel();
+	}}
+	onhashchange={() => {
+		// someone edited the address bar: follow a region link, or close the panel when it went
+		const id = parseRegionHash(window.location.hash);
+		if (id && id !== regionId) selectRegion(id, { fly: true });
+		else if (!id && regionId) dropRegion();
 	}}
 />
 
@@ -277,7 +400,7 @@
 	<link rel="preconnect" href="https://tiles.openfreemap.org" crossorigin="anonymous" />
 </svelte:head>
 
-<div class="stage" class:with-panel={!!at}>
+<div class="stage" class:with-panel={hasPanel}>
 	{#if manifest}
 		<MapView
 			bind:this={mapView}
@@ -288,10 +411,12 @@
 			attribution={ERA5_ATTRIBUTION}
 			onselect={(lon, lat) => select(lon, lat, null)}
 			onviewchange={(v) => (view = v)}
+			regions={regionsProp}
+			onregionselect={(id) => selectRegion(id, { fly: false })}
 		/>
 	{/if}
 
-	<div class="overlay-top" class:hidden-mobile={!!at && panelExpanded}>
+	<div class="overlay-top" class:hidden-mobile={hasPanel && panelExpanded}>
 		<div class="controls" class:open={controlsOpen}>
 			<h1 class="intro">How likely is a white Christmas where you live?</h1>
 			<div class="search-row">
@@ -299,6 +424,9 @@
 					<PlaceSearch
 						loadPlaces={async () => (await (await getDataSource()).places()).places}
 						onpick={pickPlace}
+						regionsEnabled={hasRegions}
+						loadRegions={async () => (await getDataSource()).admin1Index()}
+						onpickregion={pickRegion}
 					/>
 				</div>
 				<button
@@ -428,6 +556,27 @@
 							</select>
 						</label>
 					</div>
+					{#if hasRegions}
+						<label class="region-toggle" class:checked={regionsOn}>
+							<input
+								type="checkbox"
+								checked={regionsOn}
+								data-testid="regions-toggle"
+								onchange={(e) => setRegionsOn(e.currentTarget.checked)}
+							/>
+							<span>States and provinces</span>
+						</label>
+						{#if regionsOn}
+							<p class="level-note" data-testid="regions-hint" aria-live="polite">
+								{regionsLoading
+									? 'Loading the borders…'
+									: 'Click a state or province for its details.'}
+							</p>
+						{/if}
+					{/if}
+					{#if regionsNote}
+						<p class="level-note" role="status" data-testid="regions-note">{regionsNote}</p>
+					{/if}
 					{#if levelNote}
 						<p class="level-note" data-testid="level-note">
 							<strong>{periods.find((p) => p.value === selection.period)?.label}</strong> global
@@ -443,7 +592,7 @@
 	</div>
 
 	{#if manifest}
-		<div class="overlay-legend" class:hidden-mobile={!!at}>
+		<div class="overlay-legend" class:hidden-mobile={hasPanel}>
 			<Legend
 				{layer}
 				{colormap}
@@ -463,6 +612,21 @@
 			{loading}
 			error={lookupError}
 			{label}
+			{selection}
+			expanded={panelExpanded}
+			onclose={closePanel}
+			ontoggle={() => (panelExpanded = !panelExpanded)}
+			ondefinition={(id) => setSelection({ definition: id })}
+		/>
+	{/if}
+
+	{#if manifest && regionRow && RegionPanel}
+		<RegionPanel
+			{manifest}
+			index={regionIndex}
+			row={regionRow}
+			country={regionCountry}
+			error={regionError}
 			{selection}
 			expanded={panelExpanded}
 			onclose={closePanel}
@@ -618,6 +782,21 @@
 		background: var(--surface);
 		border: 1px solid var(--line);
 		border-radius: 6px;
+	}
+	.region-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+		padding: 6px 4px 2px;
+		font-size: 0.86rem;
+		cursor: pointer;
+	}
+	.region-toggle input {
+		width: 18px;
+		height: 18px;
+		margin: 0;
+		accent-color: var(--accent);
 	}
 	.fixture {
 		margin: 8px 0 0;

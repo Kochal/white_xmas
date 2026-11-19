@@ -212,3 +212,215 @@ test('threshold switch: calibrated by default, raw ERA5-Land on demand (contract
 		await expect(page.getByTestId('raw-note')).toBeVisible();
 	}
 });
+
+// --- states and provinces (contract v1.6): fixtures carry the pipeline's admin1 sample
+// (Austria, Germany, Finland, Italy, Liechtenstein, Cyprus buffer zone; fake values)
+
+/** Opens the layer controls on phones, where they are folded behind a button. */
+async function openControls(page: import('@playwright/test').Page) {
+	const toggle = page.getByRole('button', { name: 'Map layers' });
+	if ((await toggle.isVisible()) && (await toggle.getAttribute('aria-expanded')) !== 'true')
+		await toggle.click();
+}
+
+async function closeControls(page: import('@playwright/test').Page) {
+	const toggle = page.getByRole('button', { name: 'Map layers' });
+	if ((await toggle.isVisible()) && (await toggle.getAttribute('aria-expanded')) === 'true')
+		await toggle.click();
+}
+
+test('states and provinces load only when asked', async ({ page }) => {
+	const adminRequests: string[] = [];
+	page.on('request', (r) => {
+		if (r.url().includes('/admin1/')) adminRequests.push(new URL(r.url()).pathname);
+	});
+	await page.goto('/');
+	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+	await openControls(page);
+	await expect(page.getByTestId('regions-toggle')).not.toBeChecked();
+	await page.waitForTimeout(500);
+	expect(adminRequests).toEqual([]);
+
+	await page.getByTestId('regions-toggle').check();
+	await expect(page.getByTestId('regions-hint')).toContainText('Click a state or province');
+	// the index and the outlines, but no country file until a region opens
+	expect(adminRequests.some((u) => u.endsWith('/admin1/index.json'))).toBe(true);
+	expect(adminRequests.some((u) => u.endsWith('/admin1/boundaries.json'))).toBe(true);
+	expect(adminRequests.some((u) => /\/admin1\/c\//.test(u))).toBe(false);
+	await expect(page).toHaveURL(/regions=1/);
+});
+
+test('click a state: the region panel shows the numbers and a deep link', async ({ page }) => {
+	await page.goto('/?map=6/48.9/11.3');
+	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+	await openControls(page);
+	await page.getByTestId('regions-toggle').check();
+	await expect(page.getByTestId('regions-hint')).toContainText('Click a state or province');
+	await closeControls(page);
+
+	const canvas = page.locator('.maplibregl-canvas');
+	const box = (await canvas.boundingBox())!;
+	const panel = page.getByTestId('region-panel');
+	// the click only hits the region once its outlines are drawn
+	await expect(async () => {
+		await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+		await expect(panel).toBeVisible({ timeout: 1500 });
+	}).toPass({ timeout: 20_000 });
+
+	await expect(panel.getByRole('heading', { level: 2 })).toHaveText(/\S/);
+	await expect(panel.getByTestId('headline')).toHaveText(/\d+%/);
+	await expect(panel.getByTestId('pop-weighted')).toContainText(/Where people live|No place/);
+	await expect(panel.getByTestId('region-series').getByRole('img')).toHaveAttribute(
+		'aria-label',
+		/1950 to 2025/
+	);
+	await expect(panel.getByTestId('region-trend')).toContainText('pp per decade');
+	await expect(panel.getByTestId('trend-significance')).toContainText(/clear trend/);
+	await expect(panel.getByTestId('region-spread')).toContainText('Inside the region');
+	await expect(panel.getByRole('heading', { name: 'By decade' })).toBeVisible();
+	await expect(panel.getByRole('heading', { name: 'In a warmer world' })).toBeVisible();
+	await expect(panel.getByTestId('method-link')).toHaveAttribute('href', /methodology/);
+	await expect(page).toHaveURL(/#\/region\/[A-Z0-9-]+$/);
+	// a region and a point are never open together
+	await expect(page.getByTestId('place-panel')).toHaveCount(0);
+
+	// Escape closes the panel and drops the link's hash
+	await panel.getByTestId('headline').click();
+	await page.keyboard.press('Escape');
+	await expect(panel).toBeHidden();
+	await expect(page).not.toHaveURL(/#\/region\//);
+});
+
+test('#/region/<id> opens the region, also after a reload, and a bad id says so', async ({
+	page
+}) => {
+	await page.goto('/#/region/AT-7');
+	const panel = page.getByTestId('region-panel');
+	await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Tyrol');
+	await expect(panel.getByTestId('headline')).toHaveText(/\d+%/);
+	await expect(panel).toContainText('Austria');
+	await page.reload();
+	await expect(page.getByTestId('region-panel').getByRole('heading', { level: 2 })).toHaveText(
+		'Tyrol'
+	);
+
+	// a region without values (Cyprus buffer zone: no land cells) says why
+	await page.goto('/#/region/CNM');
+	await expect(page.getByTestId('region-panel')).toContainText(/no values/i);
+	await expect(page.getByTestId('region-flag-no_land')).toBeVisible();
+
+	await page.goto('/#/region/XX-NOPE');
+	await expect(page.getByTestId('region-panel')).toHaveCount(0);
+	await openControls(page);
+	await expect(page.getByTestId('regions-note')).toContainText('no state or province');
+});
+
+test('a small region carries the low resolution note', async ({ page }) => {
+	// Liechtenstein's municipalities are first-level units in the sample: all low_res
+	await page.goto('/rankings/');
+	await page.getByTestId('region-country').selectOption('LIE');
+	const link = page.getByTestId('region-ranking').locator('tbody tr').first().getByRole('link');
+	await expect(link).toBeVisible({ timeout: 20_000 });
+	await expect(page.getByTestId('region-ranking')).toContainText('low resolution');
+	await link.click();
+	const panel = page.getByTestId('region-panel');
+	await expect(panel.getByRole('heading', { level: 2 })).toBeVisible();
+	await expect(panel.getByTestId('region-flag-low_res')).toContainText('Low resolution');
+});
+
+test('region panel follows the threshold switch and the definition', async ({ page }) => {
+	await page.goto('/#/region/DE-BY');
+	const panel = page.getByTestId('region-panel');
+	const both = panel.getByTestId('both-thresholds');
+	await expect(both).toContainText('calibrated');
+	await expect(both).toContainText('raw ERA5-Land');
+	const calibrated = await panel.getByTestId('headline').innerText();
+	await expect(panel.getByTestId('threshold-note')).toContainText('Calibrated: 5 cm');
+
+	await openControls(page);
+	await page.getByRole('radio', { name: 'Raw ERA5-Land (1 cm)' }).check();
+	await expect(panel.getByTestId('headline')).not.toHaveText(calibrated);
+	await expect(panel).toContainText('at least 1 cm');
+	await closeControls(page);
+
+	await panel.getByLabel('Definition').selectOption('any_day');
+	await expect(panel).toContainText('Snow on any of the three days');
+});
+
+test('search finds states and provinces next to places', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.locator('.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
+	const search = page.getByRole('combobox', { name: 'Search for a place' });
+	await search.fill('Bavaria');
+	const option = page.getByRole('option').filter({ hasText: 'State or province' }).first();
+	await expect(option).toContainText('Bavaria');
+	await expect(option).toContainText('Germany');
+	await option.click();
+	const panel = page.getByTestId('region-panel');
+	await expect(panel.getByRole('heading', { level: 2 })).toHaveText('Bavaria');
+	await expect(page).toHaveURL(/#\/region\/DE-BY/);
+
+	// a city still opens the place panel, and replaces the region
+	await search.fill('Munich');
+	await expect(page.getByRole('option').first()).toContainText('Munich');
+	await search.press('Enter');
+	await expect(page.getByTestId('place-panel')).toBeVisible();
+	await expect(panel).toHaveCount(0);
+	await expect(page).not.toHaveURL(/#\/region\//);
+});
+
+test('rankings: regions in a country, the world list, and the region search', async ({ page }) => {
+	await page.goto('/rankings/');
+	const table = page.getByTestId('region-ranking');
+	await expect(table).toBeVisible({ timeout: 20_000 });
+	// world, snowiest: low-resolution regions (Liechtenstein) are left out
+	await expect(table.locator('tbody tr').first()).toContainText(/\d+%/);
+	await expect(table).not.toContainText('low resolution');
+
+	await page.getByTestId('region-country').selectOption('DEU');
+	await expect(page.getByRole('heading', { name: /regions in Germany/ })).toBeVisible();
+	await expect(table.locator('tbody tr')).toHaveCount(16);
+	await expect(table.locator('tbody tr').first().getByRole('link')).toHaveAttribute(
+		'href',
+		/regions=1#\/region\/DE-/
+	);
+
+	await page.getByRole('radio', { name: 'Biggest decline' }).check();
+	await expect(table.getByRole('columnheader', { name: 'Change' })).toBeVisible();
+	await page.getByRole('radio', { name: 'Least snowy' }).check();
+	await expect(page.getByRole('heading', { name: /Least snowy regions in Germany/ })).toBeVisible();
+
+	// the search box ignores the country and ranking, and the link opens the map on the region
+	await page.getByTestId('region-find').fill('tyrol');
+	// "Tyrol" first, then the Italian "Trentino-South Tyrol"
+	await expect(table.locator('tbody tr')).toHaveCount(2);
+	await expect(table.locator('tbody tr').first()).toContainText('Tyrol');
+	await table.getByRole('link', { name: 'Tyrol', exact: true }).click();
+	await expect(page.getByTestId('region-panel').getByRole('heading', { level: 2 })).toHaveText(
+		'Tyrol'
+	);
+	await expect(page).toHaveURL(/#\/region\/AT-7/);
+});
+
+test('region panel stays within 360 px', async ({ page }) => {
+	await page.setViewportSize({ width: 360, height: 740 });
+	await page.goto('/#/region/DE-BY');
+	const panel = page.getByTestId('region-panel');
+	await expect(panel.getByTestId('headline')).toBeVisible();
+	const grip = panel.getByRole('button', { name: 'Expand details' });
+	if (await grip.isVisible()) await grip.click();
+	await page.addStyleTag({
+		content: '* { font-family: Verdana, "DejaVu Sans", sans-serif !important; }'
+	});
+	await page.waitForTimeout(300);
+	const [scroll, inner] = await page.evaluate(() => [
+		document.documentElement.scrollWidth,
+		window.innerWidth
+	]);
+	expect(scroll).toBeLessThanOrEqual(inner);
+	// the scrolling body, not the clipped panel: nothing in it may be wider than the panel
+	const [pw, cw] = await panel
+		.locator('#panel-body')
+		.evaluate((el) => [el.scrollWidth, el.clientWidth]);
+	expect(pw).toBeLessThanOrEqual(cw);
+});

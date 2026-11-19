@@ -2,6 +2,14 @@
  * One entry point for all data the site reads, with caching: the manifest, the point
  * index and tiles, projection tiles, places and regions.
  */
+import {
+	loadAdmin1Index,
+	loadBoundaries,
+	loadCountry,
+	type Admin1Index,
+	type BoundaryCollection,
+	type CountryFile
+} from './admin1';
 import { LruCache } from './cache';
 import { cellCentre, cellOf, tileOf, type Cell, type TileAddress } from './grid';
 import { loadManifest, type Manifest } from './manifest';
@@ -41,6 +49,9 @@ export class DataSource {
 	#index: Promise<Set<string>> | null = null;
 	#places: Promise<{ places: Place[]; meta: PlacesMeta }> | null = null;
 	#regions: Promise<Region[]> | null = null;
+	#admin1Index: Promise<Admin1Index> | null = null;
+	#admin1Boundaries: Promise<BoundaryCollection> | null = null;
+	#admin1Countries = new LruCache<string, Promise<CountryFile>>(8);
 
 	constructor(
 		readonly base: string,
@@ -89,6 +100,38 @@ export class DataSource {
 		this.#regions ??= loadRegions(this.base, this.manifest.regions, this.fetchFn);
 		this.#regions.catch(() => (this.#regions = null));
 		return this.#regions;
+	}
+
+	/** True when the manifest lists states and provinces (contract v1.6). */
+	get hasAdmin1(): boolean {
+		return !!this.manifest.admin1?.available;
+	}
+
+	/** States and provinces, one row per region (~200 kB gzipped); loaded on first use. */
+	admin1Index(): Promise<Admin1Index> {
+		const ref = this.manifest.admin1;
+		if (!ref) return Promise.reject(new Error('states and provinces are not in this dataset'));
+		this.#admin1Index ??= loadAdmin1Index(this.base, ref, this.fetchFn);
+		this.#admin1Index.catch(() => (this.#admin1Index = null));
+		return this.#admin1Index;
+	}
+
+	/** Outlines for the map layer (~1.4 MB gzipped); only fetched when the layer is switched on. */
+	admin1Boundaries(): Promise<BoundaryCollection> {
+		const ref = this.manifest.admin1;
+		if (!ref) return Promise.reject(new Error('states and provinces are not in this dataset'));
+		this.#admin1Boundaries ??= loadBoundaries(this.base, ref, this.fetchFn);
+		this.#admin1Boundaries.catch(() => (this.#admin1Boundaries = null));
+		return this.#admin1Boundaries;
+	}
+
+	/** All regions of one country with full statistics; fetched when a region of it opens. */
+	admin1Country(country: string): Promise<CountryFile> {
+		const ref = this.manifest.admin1;
+		if (!ref) return Promise.reject(new Error('states and provinces are not in this dataset'));
+		return this.#admin1Countries.getOrLoad(country, () =>
+			loadCountry(this.base, ref, country, this.fetchFn)
+		);
 	}
 
 	async #cellAt(cell: Cell): Promise<{ tile: TileAddress; history: CellHistory | null }> {

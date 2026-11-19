@@ -3,6 +3,8 @@
  * The site only shows what the manifest lists; anything else is never assumed.
  */
 
+import { parseAdmin1Ref, type Admin1Ref } from './admin1';
+
 export const SCHEMA_VERSION = 1;
 
 export type DefinitionId = 'christmas_day' | 'all_three_days' | 'any_day' | (string & {});
@@ -130,6 +132,8 @@ export interface Manifest {
 	projections: Projections;
 	places: string;
 	regions: string;
+	/** Contract v1.6: states and provinces; undefined when the data doesn't list them. */
+	admin1?: Admin1Ref;
 }
 
 export class ManifestError extends Error {
@@ -197,7 +201,8 @@ export function parseManifest(raw: unknown): Manifest {
 		colormaps: isObject(raw.colormaps) ? (raw.colormaps as Record<string, Colormap>) : {},
 		projections,
 		places: typeof raw.places === 'string' ? raw.places : 'places.json',
-		regions: typeof raw.regions === 'string' ? raw.regions : 'regions.json'
+		regions: typeof raw.regions === 'string' ? raw.regions : 'regions.json',
+		admin1: parseAdmin1Ref(raw.admin1)
 	};
 }
 

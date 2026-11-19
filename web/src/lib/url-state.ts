@@ -1,6 +1,8 @@
 /**
  * Shareable URL state in the query string:
  * `?def=<definition>&th=<threshold>&layer=<kind>&period=<period>&map=<zoom>/<lat>/<lon>&at=<lat>,<lon>&place=<name>`
+ * plus, for states and provinces (contract v1.6), `&regions=1` (borders layer on) and the
+ * deep link `#/region/<id>` (for example `#/region/DE-BY`) for a selected region.
  */
 import type { LayerKind } from '#lib/data/manifest.ts';
 import type { Selection } from '#lib/map/layers.ts';
@@ -16,7 +18,14 @@ export interface UrlState {
 	selection: Partial<Selection>;
 	at?: { lat: number; lon: number };
 	place?: string;
+	/** State/province borders layer on. */
+	regions?: boolean;
+	/** Selected region id, from the URL hash. */
+	region?: string;
 }
+
+/** Region ids are ISO 3166-2 codes or Natural Earth fallbacks: letters, digits and `-`. */
+const REGION_ID = /^[A-Za-z0-9][A-Za-z0-9-]{0,23}$/;
 
 const KINDS: LayerKind[] = ['probability', 'change', 'trend', 'projection', 'projection_change'];
 
@@ -25,7 +34,23 @@ const finite = (s: string | undefined) => {
 	return s !== undefined && s.trim() !== '' && Number.isFinite(n) ? n : null;
 };
 
-export function parseUrlState(params: URLSearchParams): UrlState {
+/** `#/region/DE-BY` -> `DE-BY`; anything else -> undefined. */
+export function parseRegionHash(hash: string): string | undefined {
+	const m = /^#\/region\/([^/?#]+)\/?$/.exec(hash);
+	if (!m) return undefined;
+	let id: string;
+	try {
+		id = decodeURIComponent(m[1]);
+	} catch {
+		return undefined;
+	}
+	return REGION_ID.test(id) ? id : undefined;
+}
+
+export const regionHash = (id: string | undefined): string =>
+	id && REGION_ID.test(id) ? `#/region/${encodeURIComponent(id)}` : '';
+
+export function parseUrlState(params: URLSearchParams, hash = ''): UrlState {
 	const state: UrlState = { selection: {} };
 	const def = params.get('def');
 	if (def) state.selection.definition = def;
@@ -46,6 +71,16 @@ export function parseUrlState(params: URLSearchParams): UrlState {
 
 	const place = params.get('place');
 	if (place && state.at) state.place = place.slice(0, 120);
+
+	if (params.get('regions') === '1') state.regions = true;
+	const region = parseRegionHash(hash);
+	if (region) {
+		// a region and a point are never selected together; the region link wins
+		state.region = region;
+		state.regions = true;
+		delete state.at;
+		delete state.place;
+	}
 	return state;
 }
 
@@ -63,6 +98,11 @@ export function serializeUrlState(state: UrlState): string {
 		);
 	if (state.at) p.set('at', `${state.at.lat.toFixed(4)},${state.at.lon.toFixed(4)}`);
 	if (state.at && state.place) p.set('place', state.place);
+	if (state.regions) p.set('regions', '1');
 	const qs = p.toString();
 	return qs ? `?${qs}` : '';
 }
+
+/** What goes after the path: the query string plus the region hash. */
+export const serializeUrl = (state: UrlState): string =>
+	serializeUrlState(state) + regionHash(state.region);

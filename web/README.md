@@ -5,7 +5,7 @@ changed since 1950 and how it changes in a warmer world. It is a SvelteKit app b
 `@sveltejs/adapter-static`, using MapLibre GL JS with PMTiles for the map and plain SVG for the charts.
 
 The site reads only the files described in the **web data contract** (`manifest.json`,
-`tiles/*.pmtiles`, `points/`, `proj/`, `places.json` and `regions.json`). The pipeline
+`tiles/*.pmtiles`, `points/`, `proj/`, `places.json`, `regions.json` and, optionally, `admin1/`). The pipeline
 (`src/whitexmas/export/`) writes them, and the site never assumes anything the manifest doesn't list.
 
 ## Quick start
@@ -39,6 +39,38 @@ glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 re
 "calibrated" 5 cm default and the raw 1 cm view, with a made-up calibration), and projections. When the
 `data_version` contains `fixture`, the site shows a "fixture data" banner.
 `node scripts/make-fixture-data.mjs --no-projections` writes a dataset without projections.
+
+States and provinces (contract v1.6, see `docs/admin1.md`): the fixtures copy the pipeline's own
+sample, `tests/fixtures/admin1_sample/admin1/` (real Natural Earth outlines for Austria, Germany,
+Finland, Italy, Liechtenstein and the Cyprus buffer zone with made-up values), and list it in the
+manifest's `admin1` block. `--no-admin1` leaves it out; a manifest without the block hides every
+region feature.
+
+## States and provinces
+
+Optional (the manifest lists `admin1`); everything loads lazily, so the first load is unchanged:
+
+| What                      | Loaded when                                                                  | Size (gzip) |
+| ------------------------- | ---------------------------------------------------------------------------- | ----------- |
+| `admin1/index.json`       | the layer is switched on, the search box gets focus, the rankings page opens | ~200 kB     |
+| `admin1/boundaries.json`  | the layer is switched on, or a `#/region/<id>` link opens                    | ~1.4 MB     |
+| `admin1/c/<country>.json` | a region of that country is opened                                           | ≤ ~150 kB   |
+
+- **Map:** the "States and provinces" switch in the layer controls shows faint borders, names from
+  a zoom that depends on the region's size, a hover highlight and click-to-select
+  (`src/lib/map/regions-layer.ts`). It replaces the basemap's own state borders and names while on.
+- **Panel** (`src/lib/panel/RegionPanel.svelte`): headline for the selected threshold, definition
+  and period (the same two-threshold behaviour as the place panel), the population-weighted
+  value, then vs now, decades, the yearly series with the fitted trend and its significance mark,
+  the spread inside the region, projections at +1.5/+2/+3 °C and a plain note for small
+  (low-resolution) regions. All numbers come from the country file; `src/lib/data/region-view.ts`
+  holds the logic.
+- **Deep link:** `#/region/<id>` (an ISO 3166-2 code such as `DE-BY`), also after a reload;
+  `?regions=1` switches the borders on without selecting anything (`src/lib/url-state.ts`).
+- **Search:** the box finds regions next to places (`src/lib/data/admin1-search.ts`).
+- **Rankings:** `/rankings` lists the snowiest, least snowy and biggest-decline regions for the
+  world or one country, and has a find box (`src/lib/admin1-rankings.ts`). The world lists leave
+  out low-resolution regions.
 
 ## Scripts
 
@@ -112,9 +144,11 @@ shallowest `manifest.json` and checks that `schema_version` is `1`.
 
 ```
 web/
-  src/lib/data/       manifest, point-tile decoders, derivations, places, regions, cache (unit-tested)
-  src/lib/map/        MapLibre + PMTiles map, layer selection, legend
-  src/lib/components/ place panel, year strip, charts, search
+  src/lib/data/       manifest, point-tile decoders, derivations, places, regions, states and
+                      provinces (admin1), cache (unit-tested)
+  src/lib/map/        MapLibre + PMTiles map, layer selection, legend, region layer
+  src/lib/panel/      place panel, region panel, year strip, charts
+  src/lib/components/ search, header
   src/routes/         / (map), /rankings, /methodology, /downloads, /about
   scripts/            fixture generator, Pages-like static server, OG image
   e2e/                Playwright smoke test

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseUrlState, serializeUrlState } from './url-state';
+import {
+	parseRegionHash,
+	parseUrlState,
+	regionHash,
+	serializeUrl,
+	serializeUrlState
+} from './url-state';
 
 describe('URL state', () => {
 	it('round-trips view, selection and the selected place', () => {
@@ -31,5 +37,55 @@ describe('URL state', () => {
 
 	it('leaves out what is not set', () => {
 		expect(serializeUrlState({ selection: {} })).toBe('');
+	});
+});
+
+describe('URL state: states and provinces', () => {
+	it('reads #/region/<id> and switches the borders layer on', () => {
+		const s = parseUrlState(new URLSearchParams(''), '#/region/DE-BY');
+		expect(s.region).toBe('DE-BY');
+		expect(s.regions).toBe(true);
+	});
+
+	it('lets a region link win over a point', () => {
+		const s = parseUrlState(new URLSearchParams('at=48.1,11.5&place=Munich'), '#/region/AT-7');
+		expect(s.region).toBe('AT-7');
+		expect(s.at).toBeUndefined();
+		expect(s.place).toBeUndefined();
+	});
+
+	it('reads ?regions=1 without a region', () => {
+		const s = parseUrlState(new URLSearchParams('regions=1'));
+		expect(s.regions).toBe(true);
+		expect(s.region).toBeUndefined();
+	});
+
+	it('ignores malformed hashes', () => {
+		for (const h of [
+			'',
+			'#',
+			'#/region/',
+			'#/region/a/b',
+			'#/place/DE-BY',
+			'#/region/%E0%A4',
+			'#/region/<script>',
+			'#/region/' + 'A'.repeat(40)
+		])
+			expect(parseRegionHash(h), h).toBeUndefined();
+		expect(parseRegionHash('#/region/DE-BY/')).toBe('DE-BY');
+		expect(parseRegionHash('#/region/US-DC')).toBe('US-DC');
+	});
+
+	it('serializes the borders flag and the hash, and round-trips', () => {
+		const state = { selection: {}, regions: true, region: 'DE-BY' };
+		expect(serializeUrlState(state)).toBe('?regions=1');
+		expect(serializeUrl(state)).toBe('?regions=1#/region/DE-BY');
+		expect(parseUrlState(new URLSearchParams('regions=1'), '#/region/DE-BY')).toEqual(state);
+		expect(serializeUrl({ selection: {} })).toBe('');
+	});
+
+	it('never writes an unsafe region id into the URL', () => {
+		expect(regionHash('a b/c')).toBe('');
+		expect(regionHash(undefined)).toBe('');
 	});
 });

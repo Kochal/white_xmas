@@ -1,18 +1,27 @@
 <script lang="ts">
-	import type { DecadeProbability } from '#lib/data/derive.ts';
+	import type { Window } from '#lib/data/manifest.ts';
 
-	interface Props {
-		decades: DecadeProbability[];
+	/** One bar. The year counts are known for a place (yes/no years), not for a region average. */
+	interface Bar {
+		window: Window;
+		p: number | null;
+		nWhite?: number;
+		nValid?: number;
 	}
 
-	let { decades }: Props = $props();
+	interface Props {
+		decades: Bar[];
+		/** Opening words of the accessible name; the bars' values follow. */
+		label?: string;
+	}
+
+	let { decades, label = 'White Christmas probability per decade.' }: Props = $props();
 
 	const BAR = 34;
 	const GAP = 12;
 	const H = 70;
 	const width = $derived(decades.length * (BAR + GAP) - GAP);
-	const short = (d: DecadeProbability) =>
-		`${String(d.window.start).slice(2)}–${String(d.window.end).slice(2)}`;
+	const short = (d: Bar) => `${String(d.window.start).slice(2)}–${String(d.window.end).slice(2)}`;
 	const summary = $derived(
 		decades
 			.map((d) => `${d.window.label}: ${d.p === null ? 'no data' : `${Math.round(d.p)}%`}`)
@@ -20,11 +29,7 @@
 	);
 </script>
 
-<svg
-	viewBox="-30 -16 {width + 32} {H + 34}"
-	role="img"
-	aria-label="White Christmas probability per decade. {summary}"
->
+<svg viewBox="-30 -16 {width + 32} {H + 34}" role="img" aria-label="{label} {summary}">
 	{#each [50, 100] as g (g)}
 		<line x1="-2" x2={width + 2} y1={H - (g / 100) * H} y2={H - (g / 100) * H} class="grid" />
 		<text x="-6" y={H - (g / 100) * H + 3.5} text-anchor="end" class="label">{g}%</text>
@@ -37,7 +42,7 @@
 			<title>
 				{d.window.label}: {d.p === null
 					? 'no data'
-					: `${d.p.toFixed(0)}% (${d.nWhite} of ${d.nValid} years)`}
+					: `${d.p.toFixed(0)}%${d.nValid === undefined ? '' : ` (${d.nWhite} of ${d.nValid} years)`}`}
 			</title>
 		</rect>
 		<text x={x + BAR / 2} y={H - h - 4} text-anchor="middle" class="value">
