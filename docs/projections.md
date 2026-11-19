@@ -288,6 +288,17 @@ data is in. ERA5-Land median Christmas SWE at 40–60 °N: 64 kg m⁻² (at 250 
   (EC-Earth3/-Veg, MPI-ESM1-2-HR/-LR, INM-CM4-8/5-0, GFDL-CM4/ESM4, HadGEM3/UKESM1,
   MIROC6/MIROC-ES2L). They are weighted equally for now; family weighting is a possible refinement.
 
+### Hindcast dry run (1961–1975 → 1981–1995)
+
+A dry run on years that are already on disk (each model's change from 1961–1975 to 1981–1995,
+applied to ERA5-Land 1961–1975, scored on 1981–1995): Brier score 0.0541 with no change,
+0.0541 for the ensemble median (skill +0.2 %), and −2 to −9 % for single models. Little global
+warming happened between those periods (observed mean change −1 pp, ensemble median 0 pp), so a
+single model's change is mostly its own year-to-year noise, and only the ensemble median avoids
+adding that noise. Reliability of the ensemble median is good (forecast and observed frequency
+within 4 pp in every 10 % bin). The real test (1961–1990 → 1996–2025, about 0.5 °C more global
+warming) follows when ERA5-Land 1996–2025 is in.
+
 ### Sensitivity to threshold and day pooling
 
 Christmas-Day log-odds change at +2 °C, all 21 models, cells where the models' median baseline
