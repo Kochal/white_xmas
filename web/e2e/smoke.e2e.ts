@@ -64,3 +64,19 @@ test('no horizontal scroll at 360 px', async ({ page }) => {
 		expect(scroll, path).toBeLessThanOrEqual(inner);
 	}
 });
+
+test('text typed before the app hydrates still searches', async ({ page }) => {
+	// hold back the app entry so the prerendered search box is usable before hydration
+	let release!: () => void;
+	const gate = new Promise<void>((r) => (release = r));
+	await page.route('**/_app/immutable/entry/app.*.js', async (route) => {
+		await gate;
+		await route.continue();
+	});
+	await page.goto('/', { waitUntil: 'commit' });
+	const search = page.getByRole('combobox', { name: 'Search for a place' });
+	await search.fill('Munich');
+	release();
+	const list = page.getByRole('listbox', { name: 'Places' });
+	await expect(list.getByRole('option').first()).toContainText('Munich', { timeout: 15_000 });
+});

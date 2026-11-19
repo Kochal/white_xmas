@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { searchPlaces, type Place, type SearchHit } from '#lib/data/places.ts';
 	import { formatPct } from '#lib/format/format.ts';
 
@@ -17,7 +18,33 @@
 	let active = $state(-1);
 	let input: HTMLInputElement;
 
-	const hits = $derived<SearchHit[]>(places && query.trim() ? searchPlaces(places, query, 8) : []);
+	/** The query the results are for; trails `query` by DEBOUNCE_MS while typing. */
+	let searched = $state('');
+	const DEBOUNCE_MS = 100;
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	function schedule() {
+		clearTimeout(timer);
+		timer = setTimeout(() => (searched = query), DEBOUNCE_MS);
+	}
+	function flush() {
+		clearTimeout(timer);
+		searched = query;
+	}
+
+	const hits = $derived<SearchHit[]>(
+		places && searched.trim() ? searchPlaces(places, searched, 8) : []
+	);
+
+	// Text typed into the prerendered box before the app hydrated: pick it up.
+	onMount(() => {
+		if (input.value) {
+			query = input.value;
+			flush();
+			ensurePlaces();
+			open = document.activeElement === input;
+		}
+		return () => clearTimeout(timer);
+	});
 	const listId = 'place-search-list';
 
 	async function ensurePlaces() {
@@ -45,6 +72,7 @@
 			e.preventDefault();
 			active = Math.max(0, active - 1);
 		} else if (e.key === 'Enter') {
+			if (searched !== query) flush(); // don't act on stale results
 			const h = hits[active >= 0 ? active : 0];
 			if (h) {
 				e.preventDefault();
@@ -54,7 +82,10 @@
 			if (open) {
 				open = false;
 				active = -1;
-			} else query = '';
+			} else {
+				query = '';
+				flush();
+			}
 		}
 	}
 
@@ -99,6 +130,7 @@
 			open = true;
 			active = -1;
 			ensurePlaces();
+			schedule();
 		}}
 		onblur={() => setTimeout(() => (open = false), 150)}
 		{onkeydown}
@@ -133,9 +165,11 @@
 				<li class="empty muted" role="presentation">
 					{loadError
 						? `Places could not be loaded: ${loadError}`
-						: places
-							? 'No place found. Try another spelling, or click the map.'
-							: 'Loading places…'}
+						: !places
+							? 'Loading places…'
+							: searched !== query
+								? 'Searching…'
+								: 'No place found. Try another spelling, or click the map.'}
 				</li>
 			{/each}
 		</ul>

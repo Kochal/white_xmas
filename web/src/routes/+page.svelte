@@ -208,7 +208,7 @@
 			<div class="search-row">
 				<div class="search-wrap">
 					<PlaceSearch
-						loadPlaces={async () => (ds ? (await ds.places()).places : [])}
+						loadPlaces={async () => (await (await getDataSource()).places()).places}
 						onpick={pickPlace}
 					/>
 				</div>

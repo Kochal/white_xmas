@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fold, loadPlaces, parsePlaces, searchPlaces } from './places';
+import { PlaceSearcher, fold, loadPlaces, parsePlaces, searchPlaces } from './places';
 import { loadRegions, parseRegions } from './regions';
 import { tQuantile } from './stats';
 
@@ -166,6 +166,20 @@ describe('searchPlaces', () => {
 	it('returns nothing for an empty or hopeless query', () => {
 		expect(searchPlaces(v1, '  ')).toEqual([]);
 		expect(searchPlaces(v1, 'xyzzyq')).toEqual([]);
+	});
+
+	it('gives the same results when narrowing keystroke by keystroke as a fresh search', () => {
+		const typing = new PlaceSearcher(v11);
+		for (const word of ['muenchen', 'munich', 'koln', 'pragx', 'colonia, de']) {
+			for (let i = 1; i <= word.length; i++) {
+				const q = word.slice(0, i);
+				const fresh = new PlaceSearcher(v11).search(q).map((h) => h.place.name);
+				expect(
+					typing.search(q).map((h) => h.place.name),
+					q
+				).toEqual(fresh);
+			}
+		}
 	});
 
 	it('limits the number of hits', () => {
