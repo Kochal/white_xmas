@@ -31,13 +31,25 @@ def load_plan(cmip6_root: Path) -> dict:
     return json.loads((cmip6_root / "plan.json").read_text())
 
 
-def snw_files(cmip6_root: Path, model: str, experiment: str) -> list[tuple[int, int, Path]]:
+def snw_files(
+    cmip6_root: Path, model: str, experiment: str, grid: str | None = None
+) -> list[tuple[int, int, Path]]:
+    """(first year, last year, path) of a model's subsets, optionally for one grid label."""
     out = []
     for p in sorted((cmip6_root / "snw" / model).glob(f"snw_day_{model}_{experiment}_*_xmas.nc")):
         m = _YEARS.search(p.name)
-        if m:
+        if m and (grid is None or p.name.split("_")[5] == grid):
             out.append((int(m[1]), int(m[2]), p))
     return out
+
+
+def model_grid(cmip6_root: Path, model: str, experiment: str) -> str:
+    """Grid label to use: the scenario's (some models publish historical on two grids)."""
+    for exp in (experiment, "ssp245", "historical"):
+        grids = sorted({p.name.split("_")[5] for *_, p in snw_files(cmip6_root, model, exp)})
+        if grids:
+            return grids[0]
+    raise FileNotFoundError(f"no snw files for {model}")
 
 
 def load_window(cmip6_root: Path, model: str, experiment: str, y0: int, y1: int) -> ModelField:
@@ -49,8 +61,9 @@ def load_window(cmip6_root: Path, model: str, experiment: str, y0: int, y1: int)
 
     coder = xr.coders.CFDatetimeCoder(use_cftime=True)
     times, vals, lat, lon = [], [], None, None
+    grid = model_grid(cmip6_root, model, "ssp245")
     for exp in dict.fromkeys(["historical", experiment]):
-        for a, b, path in snw_files(cmip6_root, model, exp):
+        for a, b, path in snw_files(cmip6_root, model, exp, grid):
             if b < y0 or a > y1 + 1:
                 continue
             with xr.open_dataset(path, decode_times=coder) as ds:
