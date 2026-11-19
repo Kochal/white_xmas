@@ -193,7 +193,8 @@ The full sensitivity test across all models is part of Phase 2 validation.
 7. **Ensemble:** median, 10th and 90th percentile of `p'` across models. **Agreement:** at least
    two thirds of the models with a value agree on the direction of the change, where "no change"
    (`Δ = 0`, e.g. a model cell with snow in every year of both windows) counts as a direction of
-   its own. Without that, cells that keep snow in every model would be flagged as disagreeing.
+   its own (contract v1.3 states this for the hatching and the `wx-proj-v1` agreement bit).
+   Without that, cells that keep snow in every model would be flagged as disagreeing.
 
 Why log-odds: a change of "−20 percentage points" means something very different at 25 % and at
 95 %. Log-odds is the scale on which a logistic relation between snow and temperature is linear,
