@@ -45,8 +45,10 @@ jobs:
       run:
         working-directory: web
     env:
-      BASE_PATH: ${{ vars.PAGES_BASE_PATH || '/white_xmas' }}
-      PUBLIC_SITE_URL: ${{ vars.PAGES_SITE_URL || 'https://kochal.github.io/white_xmas' }}
+      # Set the repo variable PAGES_CUSTOM_DOMAIN (e.g. snowatchristmas.com) to build for the
+      # domain root; unset, the site builds for https://kochal.github.io/white_xmas.
+      # See docs/custom-domain.md.
+      PAGES_CUSTOM_DOMAIN: ${{ vars.PAGES_CUSTOM_DOMAIN }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -59,8 +61,32 @@ jobs:
 
       - run: npm ci
 
+      # A repository variable cannot hold an empty value, and `vars.X || default` treats empty as
+      # unset, so the root build (BASE_PATH='') is selected by the domain variable instead.
+      - name: Resolve base path and site URL
+        run: |
+          set -euo pipefail
+          domain="${PAGES_CUSTOM_DOMAIN,,}"
+          if [ -n "$domain" ]; then
+            if ! [[ "$domain" =~ ^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$ ]]; then
+              echo "::error::PAGES_CUSTOM_DOMAIN must be a bare host name such as snowatchristmas.com, got '$domain'"
+              exit 1
+            fi
+            base=''
+            site="https://$domain"
+          else
+            base='/white_xmas'
+            site='https://kochal.github.io/white_xmas'
+          fi
+          echo "BASE_PATH=$base" >> "$GITHUB_ENV"
+          echo "PUBLIC_SITE_URL=$site" >> "$GITHUB_ENV"
+          echo "Building for base path '${base}' and site URL ${site}"
+
       - name: Build site
         run: npm run build
+
+      - name: Check the build matches the base path and site URL
+        run: npm run check:build
 
       - name: Resolve data version
         id: data

@@ -6,10 +6,12 @@ import { sendFile } from './scripts/lib/send-file.mjs';
 import path from 'node:path';
 
 /**
- * Base path the site is served from. Empty for local development, `/white_xmas`
- * on GitHub Pages (set by `.github/workflows/pages.yml`).
+ * Base path the site is served from. Empty for local development and for a custom domain
+ * (served at its root), `/white_xmas` on the github.io project site. Set by
+ * `.github/workflows/pages.yml`; a missing leading slash and a trailing slash are fixed up.
  */
-const base = (process.env.BASE_PATH ?? '').replace(/\/$/, '') as '' | `/${string}`;
+const rawBase = (process.env.BASE_PATH ?? '').replace(/\/+$/, '');
+const base = (rawBase && !rawBase.startsWith('/') ? `/${rawBase}` : rawBase) as '' | `/${string}`;
 
 /** URL prefix the dev server uses to serve the fixture dataset (see README). */
 const FIXTURE_URL_PREFIX = '/__fixtures/data';
