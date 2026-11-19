@@ -91,6 +91,21 @@ describe('parseManifest', () => {
 		expect(() => parseManifest({ ...sampleManifest(), layers: 'nope' })).toThrow(ManifestError);
 	});
 
+	it('keeps v1.2 projection_change layers with their hatch flag', () => {
+		const raw = sampleManifest();
+		(raw.layers as unknown[]).push({
+			id: 'projchange__christmas_day__gwl2.0',
+			kind: 'projection_change',
+			definition: 'christmas_day',
+			warming_level: 2.0,
+			url: 'tiles/pc.pmtiles',
+			colormap: 'change',
+			hatch_disagreement: true
+		});
+		const l = parseManifest(raw).layers.find((x) => x.kind === 'projection_change');
+		expect(l).toMatchObject({ warming_level: 2, hatch_disagreement: true });
+	});
+
 	it('ignores layers of kinds it does not know, so newer pipelines do not break the site', () => {
 		const raw = sampleManifest();
 		(raw.layers as unknown[]).push({ id: 'x', kind: 'snowfall', url: 'tiles/x.pmtiles' });

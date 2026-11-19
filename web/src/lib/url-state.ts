@@ -18,7 +18,7 @@ export interface UrlState {
 	place?: string;
 }
 
-const KINDS: LayerKind[] = ['probability', 'change', 'trend', 'projection'];
+const KINDS: LayerKind[] = ['probability', 'change', 'trend', 'projection', 'projection_change'];
 
 const finite = (s: string | undefined) => {
 	const n = Number(s);

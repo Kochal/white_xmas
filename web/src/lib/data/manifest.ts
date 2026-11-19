@@ -52,10 +52,24 @@ export interface ProjectionLayer extends LayerBase {
 	kind: 'projection';
 	warming_level: number;
 }
+/** Contract v1.2: median projected probability minus the 1996–2025 baseline, in pp. */
+export interface ProjectionChangeLayer extends LayerBase {
+	kind: 'projection_change';
+	warming_level: number;
+	/** Cells where fewer than 2 in 3 models agree on the direction of change are hatched. */
+	hatch_disagreement?: boolean;
+}
 
-export type Layer = ProbabilityLayer | ChangeLayer | TrendLayer | ProjectionLayer;
+export type Layer =
+	ProbabilityLayer | ChangeLayer | TrendLayer | ProjectionLayer | ProjectionChangeLayer;
 export type LayerKind = Layer['kind'];
-const LAYER_KINDS: readonly LayerKind[] = ['probability', 'change', 'trend', 'projection'];
+const LAYER_KINDS: readonly LayerKind[] = [
+	'probability',
+	'change',
+	'trend',
+	'projection',
+	'projection_change'
+];
 
 export interface Colormap {
 	unit: string;

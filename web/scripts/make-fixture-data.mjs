@@ -167,42 +167,36 @@ for (let end = LAST_YEAR; end - 9 >= FIRST_YEAR; end -= 10)
 	});
 const win = Object.fromEntries(windows.map((w) => [w.id, w]));
 
-// --- colormaps (fixture choices; the pipeline picks the real ones)
+// --- colormaps: the same as the pipeline's (src/whitexmas/export/colors.py), so fixture
+// legends look like the real ones. ColorBrewer YlGnBu and RdBu (red = fewer, blue = more).
+const YLGNBU = [
+	'#ffffd9',
+	'#edf8b1',
+	'#c7e9b4',
+	'#7fcdbb',
+	'#41b6c4',
+	'#1d91c0',
+	'#225ea8',
+	'#253494',
+	'#081d58'
+];
+const RDBU = [
+	'#b2182b',
+	'#d6604d',
+	'#f4a582',
+	'#fddbc7',
+	'#f7f7f7',
+	'#d1e5f0',
+	'#92c5de',
+	'#4393c3',
+	'#2166ac'
+];
+const stops = (lo, hi, colours) =>
+	colours.map((c, k) => [Math.round((lo + ((hi - lo) * k) / (colours.length - 1)) * 1e4) / 1e4, c]);
 const colormaps = {
-	probability: {
-		unit: '%',
-		domain: [0, 100],
-		stops: [
-			[0, '#ece7dc'],
-			[20, '#c9dcec'],
-			[40, '#8fbfdf'],
-			[60, '#4f93c8'],
-			[80, '#2462a8'],
-			[100, '#0b2f6b']
-		]
-	},
-	change: {
-		unit: 'pp',
-		domain: [-50, 50],
-		stops: [
-			[-50, '#8c4a0b'],
-			[-20, '#e0a35f'],
-			[0, '#f4f2ee'],
-			[20, '#87b5dc'],
-			[50, '#1d4f91']
-		]
-	},
-	trend: {
-		unit: 'pp/decade',
-		domain: [-15, 15],
-		stops: [
-			[-15, '#8c4a0b'],
-			[-6, '#e0a35f'],
-			[0, '#f4f2ee'],
-			[6, '#87b5dc'],
-			[15, '#1d4f91']
-		]
-	}
+	probability: { unit: '%', domain: [0, 100], stops: stops(0, 100, YLGNBU) },
+	change: { unit: 'pp', domain: [-50, 50], stops: stops(-50, 50, RDBU) },
+	trend: { unit: 'pp/decade', domain: [-15, 15], stops: stops(-15, 15, RDBU) }
 };
 
 function hexToRgb(hex) {
@@ -259,7 +253,7 @@ function renderTile(z, x, y, grid, cmap) {
 			const o = (py * size + px) * 4;
 			const stripe = ((x * size + px + y * size + py) & 7) < 2;
 			if (g.hatch[k] === 2) {
-				const c = stripe ? [125, 133, 144] : [213, 217, 224];
+				const c = stripe ? [150, 150, 150] : [224, 224, 224]; // pipeline GLACIER_LINE / FILL
 				rgba.set([...c, 255], o);
 				any = true;
 				continue;
@@ -267,7 +261,7 @@ function renderTile(z, x, y, grid, cmap) {
 			const v = g.value[k];
 			if (Number.isNaN(v)) continue;
 			let c = colour(cmap, v);
-			if (g.hatch[k] === 1 && stripe) c = c.map((ch) => Math.round(ch * 0.55 + 150 * 0.45));
+			if (g.hatch[k] === 1 && stripe) c = [90, 90, 90]; // pipeline HATCH_LINE
 			rgba.set([...c, 255], o);
 			any = true;
 		}
@@ -391,10 +385,11 @@ probLayer('any_day', '1996_2025');
 }
 
 // projections (wx-proj-v1)
+// approx is derived by the pipeline (contract v1.3) and can be long; fixtures include one
 const LEVELS = [
 	{ gwl: 1.5, label: '+1.5 °C', approx: 'around the 2030s' },
-	{ gwl: 2.0, label: '+2 °C', approx: 'around the 2050s' },
-	{ gwl: 3.0, label: '+3 °C', approx: 'around the 2080s (SSP2-4.5 median)' }
+	{ gwl: 2.0, label: '+2 °C', approx: 'around the 2040s' },
+	{ gwl: 3.0, label: '+3 °C', approx: 'not reached under SSP2-4.5 by most models' }
 ];
 const logit = (p) => Math.log(p / (1 - p));
 const inv = (x) => 1 / (1 + Math.exp(-x));
@@ -437,6 +432,24 @@ if (withProjections) {
 			warming_level: lv.gwl,
 			url: writeLayer(id, grid, 'probability'),
 			colormap: 'probability',
+			minzoom: 0,
+			maxzoom: 6
+		});
+		// contract v1.2: change vs today, hatched where models disagree on the direction
+		const cid = `projchange__christmas_day__gwl${lv.gwl.toFixed(1)}`;
+		const cgrid = buildGrid((key, k) => {
+			const p0 = probability(whiteSeries(key, k, 'christmas_day'), 1996, 2025);
+			const median = projStats(p0, lv.gwl)[1];
+			return { value: median - p0, insignificant: Math.abs(median - p0) < 3 };
+		});
+		layers.push({
+			id: cid,
+			kind: 'projection_change',
+			definition: 'christmas_day',
+			warming_level: lv.gwl,
+			url: writeLayer(cid, cgrid, 'change'),
+			colormap: 'change',
+			hatch_disagreement: true,
 			minzoom: 0,
 			maxzoom: 6
 		});

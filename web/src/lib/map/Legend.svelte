@@ -47,11 +47,17 @@
 			case 'projection':
 				return `Share of years with snow on the ground. 30% means ${inTenYears(30)}.`;
 			case 'change':
-				return 'Percentage points between the two periods. Brown: fewer white Christmases; blue: more.';
+				return 'Change in percentage points (pp) between the two periods.';
 			case 'trend':
-				return 'Percentage points per decade (linear trend). Brown: declining; blue: rising.';
+				return 'Linear trend in percentage points (pp) per decade.';
+			case 'projection_change':
+				return 'Projected change in percentage points (pp) compared with today (1996–2025).';
 		}
 	});
+	// Colours come from the manifest, so the ends of the scale are named by meaning, not colour.
+	const signedScale = $derived(
+		layer?.kind === 'change' || layer?.kind === 'trend' || layer?.kind === 'projection_change'
+	);
 </script>
 
 <section class="legend" class:more aria-label="Legend">
@@ -75,11 +81,23 @@
 			<div class="plain" aria-hidden="true">
 				<span>never</span><span>1 in 2 years</span><span>every year</span>
 			</div>
+		{:else if signedScale}
+			<div class="plain" data-testid="legend-ends">
+				<span>{layer.kind === 'trend' ? 'declining' : 'fewer'}</span><span>no change</span><span>
+					{layer.kind === 'trend' ? 'rising' : 'more'}
+				</span>
+			</div>
 		{/if}
 		<p class="unit">{caption}</p>
 		<ul class="keys">
 			{#if layer.kind === 'trend' && layer.hatch_insignificant}
 				<li><span class="swatch hatch-light"></span> Hatched: not statistically significant</li>
+			{/if}
+			{#if layer.kind === 'projection_change' && layer.hatch_disagreement}
+				<li>
+					<span class="swatch hatch-light"></span> Hatched: fewer than 2 in 3 models agree on the direction
+					of change
+				</li>
 			{/if}
 			{#if glaciers}
 				<li><span class="swatch glacier"></span> Glacier: snow every year, not coloured</li>
@@ -198,10 +216,10 @@
 		border-radius: 2px;
 	}
 	.glacier {
-		background: repeating-linear-gradient(135deg, #7d8590 0 2px, #d5d9e0 2px 6px);
+		background: repeating-linear-gradient(135deg, #969696 0 2px, #e0e0e0 2px 6px);
 	}
 	.hatch-light {
-		background: repeating-linear-gradient(135deg, #969696 0 2px, #f4f2ee 2px 6px);
+		background: repeating-linear-gradient(135deg, #5a5a5a 0 2px, #f7f7f7 2px 6px);
 	}
 	.none {
 		background: transparent;

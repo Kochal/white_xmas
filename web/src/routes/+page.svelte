@@ -10,9 +10,13 @@
 	import Legend from '#lib/map/Legend.svelte';
 	import MapView from '#lib/map/MapView.svelte';
 	import {
+		FUTURE_MODE_LABELS,
 		KIND_LABELS,
 		availableKinds,
+		futureModes,
+		isFuture,
 		normalizeSelection,
+		warmingLevelNote,
 		periodOptions,
 		resolveLayer,
 		type Selection
@@ -43,6 +47,11 @@
 
 	const layer = $derived<Layer | null>(manifest ? resolveLayer(manifest, selection) : null);
 	const kinds = $derived<LayerKind[]>(manifest ? availableKinds(manifest) : []);
+	const modes = $derived(manifest ? futureModes(manifest, selection.definition) : []);
+	const tabOf = (k: LayerKind): LayerKind => (isFuture(k) ? 'projection' : k);
+	const levelNote = $derived(
+		manifest && isFuture(selection.kind) ? warmingLevelNote(manifest, selection.period) : ''
+	);
 	const periods = $derived(
 		manifest ? periodOptions(manifest, selection.kind, selection.definition) : []
 	);
@@ -56,7 +65,8 @@
 			probability: 'Chance of a white Christmas',
 			change: 'Change in chance',
 			trend: 'Trend in chance',
-			projection: 'Projected chance'
+			projection: 'Projected chance',
+			projection_change: 'Change vs today'
 		}[layer.kind];
 	});
 	const legendSubtitle = $derived.by(() => {
@@ -236,18 +246,40 @@
 					<fieldset class="kinds">
 						<legend class="visually-hidden">Map layer</legend>
 						{#each kinds as k (k)}
-							<label class:checked={selection.kind === k}>
+							<label class:checked={tabOf(selection.kind) === k}>
 								<input
 									type="radio"
 									name="kind"
 									value={k}
-									checked={selection.kind === k}
-									onchange={() => setSelection({ kind: k, period: '' })}
+									checked={tabOf(selection.kind) === k}
+									onchange={() =>
+										setSelection({
+											kind: k,
+											// keep the warming level when switching between Future views
+											period: isFuture(selection.kind) && isFuture(k) ? selection.period : ''
+										})}
 								/>
 								{KIND_LABELS[k]}
 							</label>
 						{/each}
 					</fieldset>
+					{#if isFuture(selection.kind) && modes.length > 1}
+						<fieldset class="kinds modes">
+							<legend class="visually-hidden">Future view</legend>
+							{#each modes as k (k)}
+								<label class:checked={selection.kind === k}>
+									<input
+										type="radio"
+										name="future-mode"
+										value={k}
+										checked={selection.kind === k}
+										onchange={() => setSelection({ kind: k, period: selection.period })}
+									/>
+									{FUTURE_MODE_LABELS[k]}
+								</label>
+							{/each}
+						</fieldset>
+					{/if}
 					<div class="selects">
 						<label>
 							<span>Definition</span>
@@ -261,7 +293,7 @@
 							</select>
 						</label>
 						<label>
-							<span>{selection.kind === 'projection' ? 'Warming' : 'Period'}</span>
+							<span>{isFuture(selection.kind) ? 'Warming' : 'Period'}</span>
 							<select
 								value={selection.period}
 								disabled={periods.length === 0}
@@ -275,6 +307,12 @@
 							</select>
 						</label>
 					</div>
+					{#if levelNote}
+						<p class="level-note" data-testid="level-note">
+							<strong>{periods.find((p) => p.value === selection.period)?.label}</strong> global
+							warming: {levelNote}
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>
@@ -410,6 +448,15 @@
 		inset: 0;
 		margin: 0;
 		cursor: pointer;
+	}
+	.modes {
+		margin-top: 6px;
+	}
+	.level-note {
+		margin: 6px 2px 0;
+		font-size: 0.78rem;
+		line-height: 1.35;
+		color: var(--muted);
 	}
 	.selects {
 		display: grid;

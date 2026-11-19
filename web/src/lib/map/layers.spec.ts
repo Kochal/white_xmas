@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { parseManifest } from '#lib/data/manifest.ts';
-import { availableKinds, normalizeSelection, periodOptions, resolveLayer } from './layers';
+import {
+	availableKinds,
+	futureModes,
+	normalizeSelection,
+	periodOptions,
+	resolveLayer,
+	warmingLevelNote
+} from './layers';
 
 const layer = (o: Record<string, unknown>) => ({
 	url: `tiles/${o.id}.pmtiles`,
@@ -50,7 +57,15 @@ function manifest(projections = true) {
 				colormap: 'trend'
 			}),
 			layer({ id: 'f2', kind: 'projection', definition: 'christmas_day', warming_level: 2.0 }),
-			layer({ id: 'f15', kind: 'projection', definition: 'christmas_day', warming_level: 1.5 })
+			layer({ id: 'f15', kind: 'projection', definition: 'christmas_day', warming_level: 1.5 }),
+			layer({
+				id: 'fc2',
+				kind: 'projection_change',
+				definition: 'christmas_day',
+				warming_level: 2.0,
+				colormap: 'change',
+				hatch_disagreement: true
+			})
 		],
 		colormaps: {},
 		points: { index: 'points/index.json', tile_deg: 5, format: 'wx-points-v1' },
@@ -60,7 +75,11 @@ function manifest(projections = true) {
 					warming_levels: [
 						{ gwl: 1.5, label: '+1.5 °C', approx: '2030s' },
 						{ gwl: 2.0, label: '+2 °C', approx: '2050s' },
-						{ gwl: 3.0, label: '+3 °C', approx: '2080s' }
+						{
+							gwl: 3.0,
+							label: '+3 °C',
+							approx: 'not reached under SSP2-4.5 by most models'
+						}
 					]
 				}
 			: { available: false },
@@ -95,10 +114,13 @@ describe('periodOptions', () => {
 
 	it('lists warming levels that have a layer, in manifest order', () => {
 		const opts = periodOptions(manifest(), 'projection', 'christmas_day');
+		// contract v1.3: approx may be long, so the option shows the label only
 		expect(opts).toEqual([
-			{ value: '1.5', label: '+1.5 °C (2030s)' },
-			{ value: '2', label: '+2 °C (2050s)' }
+			{ value: '1.5', label: '+1.5 °C' },
+			{ value: '2', label: '+2 °C' }
 		]);
+		expect(warmingLevelNote(manifest(), '2')).toBe('2050s');
+		expect(warmingLevelNote(manifest(), '3')).toBe('not reached under SSP2-4.5 by most models');
 	});
 
 	it('is empty when a definition has no layer of that kind', () => {
@@ -138,5 +160,41 @@ describe('normalizeSelection + resolveLayer', () => {
 		const m = manifest();
 		const sel = normalizeSelection(m, { kind: 'projection', period: '2' });
 		expect(resolveLayer(m, sel)?.id).toBe('f2');
+	});
+});
+
+describe('Future: change vs today (contract v1.2)', () => {
+	it('offers both Future views when both layer kinds exist, none when projections are off', () => {
+		expect(futureModes(manifest(true))).toEqual(['projection', 'projection_change']);
+		expect(futureModes(manifest(false))).toEqual([]);
+		// projection_change is a view under the Future tab, not a tab of its own
+		expect(availableKinds(manifest(true))).not.toContain('projection_change');
+	});
+
+	it('resolves the change-vs-today layer for the same warming level', () => {
+		const m = manifest();
+		const sel = normalizeSelection(m, { kind: 'projection_change', period: '2' });
+		expect(sel.kind).toBe('projection_change');
+		expect(resolveLayer(m, sel)?.id).toBe('fc2');
+	});
+
+	it('snaps to a warming level that has a change layer', () => {
+		const m = manifest();
+		const sel = normalizeSelection(m, { kind: 'projection_change', period: '1.5' });
+		expect(sel.period).toBe('2');
+		expect(periodOptions(m, 'projection_change', 'christmas_day')).toEqual([
+			{ value: '2', label: '+2 °C' }
+		]);
+	});
+
+	it('falls back to the projected probability for a definition without change layers', () => {
+		const m = manifest();
+		const sel = normalizeSelection(m, { kind: 'projection_change', definition: 'all_three_days' });
+		expect(sel.kind).toBe('probability');
+	});
+
+	it('ignores projection_change when projections are not available', () => {
+		const sel = normalizeSelection(manifest(false), { kind: 'projection_change' });
+		expect(sel.kind).toBe('probability');
 	});
 });

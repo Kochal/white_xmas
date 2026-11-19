@@ -80,3 +80,26 @@ test('text typed before the app hydrates still searches', async ({ page }) => {
 	const list = page.getByRole('listbox', { name: 'Places' });
 	await expect(list.getByRole('option').first()).toContainText('Munich', { timeout: 15_000 });
 });
+
+test('Future: change vs today keeps the warming level and explains the hatching', async ({
+	page
+}) => {
+	await page.goto('/?layer=projection&period=3');
+	const layersToggle = page.getByRole('button', { name: 'Map layers' });
+	if (await layersToggle.isVisible()) await layersToggle.click();
+	await expect(page.getByRole('radio', { name: 'Future' })).toBeChecked();
+	// the select shows the short label; the derived "approx" text sits beside it (contract v1.3)
+	await expect(page.getByLabel('Warming')).toHaveValue('3');
+	await expect(page.getByTestId('level-note')).toContainText('not reached under SSP2-4.5');
+
+	await page.getByRole('radio', { name: 'Change vs today' }).check();
+	await expect(page).toHaveURL(/layer=projection_change/);
+	await expect(page.getByLabel('Warming')).toHaveValue('3');
+	const legend = page.getByRole('region', { name: 'Legend' });
+	await expect(legend.getByRole('heading', { name: 'Change vs today' })).toBeVisible();
+	const key = legend.getByRole('button', { name: 'Key' });
+	if (await key.isVisible()) await key.click();
+	await expect(legend).toContainText('fewer than 2 in 3 models agree on the direction of change');
+	await expect(legend.getByTestId('legend-ends')).toContainText('fewer');
+	await expect(legend).not.toContainText(/\b(brown|blue|red)\b/i);
+});
