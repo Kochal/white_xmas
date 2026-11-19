@@ -94,14 +94,18 @@ def _read_layer(ind_path: str, src: tuple, trend_p_alpha: float):
     return np.asarray(values), glacier, hatch
 
 
-def _render_layer(ind_path: str, layer: dict, out: str, maxzoom: int, quality: int, alpha: float):
+def _render_layer(
+    ind_path: str, layer: dict, out: str, maxzoom: int, quality: int, alpha: float, lossless: bool
+):
     from .tiles import LayerGrid, write_pmtiles
 
     values, glacier, hatch = _read_layer(ind_path, tuple(layer["src"]), alpha)
     grid = LayerGrid.build(values, layer["colormap"], glacier, hatch)
     meta = {k: v for k, v in layer.items() if k not in ("src", "url")}
     meta["attribution"] = "ERA5-Land (Copernicus C3S)"
-    return write_pmtiles(Path(out), grid, maxzoom=maxzoom, quality=quality, metadata=meta)
+    return write_pmtiles(
+        Path(out), grid, maxzoom=maxzoom, quality=quality, metadata=meta, lossless=lossless
+    )
 
 
 # --------------------------------------------------------------------------- helpers
@@ -164,7 +168,8 @@ def export_all(
     if state.get("fingerprint") != fp:
         state = {"fingerprint": fp, "layers": {}}
     ex = cfg.export
-    maxz, quality = int(ex.get("tile_maxzoom", 6)), int(ex.get("webp_quality", 90))
+    maxz, quality = int(ex.get("tile_maxzoom", 6)), int(ex.get("webp_quality", 50))
+    lossless = bool(ex.get("webp_lossless", True))
     alpha = cfg.trend_p
     defs = cfg.definition_ids
     wins = cfg.windows()
@@ -188,7 +193,7 @@ def export_all(
             futs = {
                 pool.submit(
                     _render_layer, str(paths.indicators), ly,
-                    str(tiles_dir / f"{ly['id']}.pmtiles"), maxz, quality, alpha,
+                    str(tiles_dir / f"{ly['id']}.pmtiles"), maxz, quality, alpha, lossless,
                 ): ly
                 for ly in todo
             }  # fmt: skip

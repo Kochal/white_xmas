@@ -96,13 +96,32 @@ def export(
     config: ConfigOpt = None,
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
     force: bool = False,
+    workers: Annotated[
+        int | None, typer.Option(help="Tile render processes (default: CPUs - 2, max 8)")
+    ] = None,
     verbose: bool = False,
 ) -> None:
     """Export web data (manifest, PMTiles, point tiles, places, regions), COGs and the bundle."""
     from .export import export_all
 
     cfg, paths = _setup(config, verbose)
-    export_all(cfg, paths, web_out, force=force)
+    export_all(cfg, paths, web_out, force=force, workers=workers)
+
+
+@app.command()
+def sanity(
+    config: ConfigOpt = None,
+    legacy_tif: Annotated[
+        Path | None, typer.Option(help="Legacy any-day probability GeoTIFF (1980-2024)")
+    ] = None,
+    out: Annotated[Path | None, typer.Option(help="Output folder")] = None,
+    verbose: bool = False,
+) -> None:
+    """Write the sanity report (city values, legacy comparison)."""
+    from .sanity import build_report
+
+    cfg, paths = _setup(config, verbose)
+    build_report(cfg, paths, legacy_tif, out or paths.products / "sanity")
 
 
 @app.command()
@@ -110,6 +129,7 @@ def build(
     config: ConfigOpt = None,
     web_out: Annotated[Path, typer.Option(help="Web data output folder")] = Path("web/static/data"),
     skip_download: bool = False,
+    workers: Annotated[int | None, typer.Option(help="Tile render processes")] = None,
     verbose: bool = False,
 ) -> None:
     """Run every step in order; each step skips work whose inputs are unchanged."""
@@ -117,7 +137,7 @@ def build(
         download(config=config, years=None, parallel=6, static_only=False, verbose=verbose)
     ingest(config=config, force=False, verbose=verbose)
     indicators(config=config, force=False, verbose=verbose)
-    export(config=config, web_out=web_out, force=False, verbose=verbose)
+    export(config=config, web_out=web_out, force=False, workers=workers, verbose=verbose)
 
 
 if __name__ == "__main__":

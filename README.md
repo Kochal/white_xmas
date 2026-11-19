@@ -24,24 +24,30 @@ A year counts as a *white Christmas* in a grid cell when the daily-mean snow dep
 
 Requirements: [uv](https://docs.astral.sh/uv/) and a free
 [Copernicus Climate Data Store](https://cds.climate.copernicus.eu/) account with its API key in
-`~/.cdsapirc` (you also need to accept the ERA5-Land licence on the dataset page once).
+`~/.cdsapirc` (accept the ERA5-Land licence on the dataset page once).
 
 ```bash
 uv sync
-export WHITEXMAS_DATA=/path/to/white_xmas_data   # where raw data and products go (outside git)
-uv run whitexmas download      # ERA5-Land daily snow depth, Dec 24–26, 1950–2025 (~100 MB/year)
-uv run whitexmas ingest        # NetCDF → one Zarr snow cube
-uv run whitexmas indicators    # probabilities, change, trend, significance
-uv run whitexmas export --web-out web/static/data
-# or everything at once:
-uv run whitexmas build
+export WHITEXMAS_DATA=/path/to/white_xmas_data   # raw data and products live here, outside git
+uv run whitexmas build                           # all steps below, in order
 ```
 
-`WHITEXMAS_DATA` defaults to `../white_xmas_data` next to the repository. Every step is
-idempotent: re-running it skips work whose inputs have not changed.
+Or step by step:
 
-Configuration (years, threshold, definitions, windows, colour scales) lives in
-`config/pipeline.yaml`.
+| Command | Does | Output (under `$WHITEXMAS_DATA`) |
+| --- | --- | --- |
+| `whitexmas download` | ERA5-Land daily-mean snow depth, Dec 24–26, 1950–2025, global (one CDS request per year, ~6 MB each) plus land-sea mask, orography and glacier mask | `era5land/` + `manifest.json` (request, CDS job id, SHA-256 per file) |
+| `whitexmas ingest` | NetCDF → one Zarr cube `snow_depth_cm[year, day, lat, lon]` (int16, whole cm, −1 = nodata) and masks | `interim/snow_cube.zarr` |
+| `whitexmas indicators` | probability and valid years per definition and window, change between the normals, trend + Mann-Kendall p, glacier flag | `interim/indicators.zarr` |
+| `whitexmas export --web-out web/static/data` | web data per the web data contract (manifest, PMTiles, point tiles, places, regions), COGs, the data bundle | `web/static/data/`, `products/cog/`, `products/whitexmas-web-data-<version>.tar.gz` |
+| `whitexmas sanity --legacy-tif <tif>` | city values and a comparison with the legacy map | `products/sanity/` |
+
+`WHITEXMAS_DATA` defaults to `white_xmas_data` next to the repository. Every step is idempotent:
+it records a fingerprint of its inputs and configuration and skips work that is already up to
+date (`--force` redoes it). A full rebuild after the download takes about 10 minutes.
+
+Configuration (years, threshold, definitions, windows, glacier rule, export settings) lives in
+`config/pipeline.yaml`. The method is described in [`docs/methodology.md`](docs/methodology.md).
 
 ## Development
 
