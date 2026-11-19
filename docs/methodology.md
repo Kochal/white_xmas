@@ -21,6 +21,9 @@ everywhere on Earth, hour by hour, back to 1950.
   (`derived-era5-land-daily-statistics`), which averages the 24 hourly values of each day. A day
   is a **UTC calendar day** (see limitations).
 - **Days:** 24, 25 and 26 December.
+- **Land only:** ERA5-Land also simulates snow on lakes and coastal water. Cells that are mostly
+  sea or lake (land-sea mask below 0.5, or lake cover of 0.5 or more) are left blank, so Lake
+  Michigan or Lake Ladoga show as water rather than as land with little snow.
 
 Daily-mean snow depth is stored rounded *down* to whole centimetres, so "at least 1 cm" means
 exactly that.
@@ -80,7 +83,9 @@ are left out of the country averages.
 
 Country figures average all land cells inside each country (Natural Earth borders at 1:10 million),
 weighting each cell by its area (cells shrink towards the poles, by the cosine of latitude), with
-glacier cells excluded.
+glacier cells excluded. Countries are identified by their ISO 3166 three-letter code. Where Natural
+Earth draws a country as several pieces with the same code (for example Kazakhstan and the leased
+Baikonur area, or Australia and its small island territories), the pieces are counted together.
 
 ## Places
 
