@@ -444,3 +444,61 @@ def test_symmetric_always_white_rule(tmp_path):
     assert sel.classify(row, sym) == ("used", "")  # a real disagreement, kept by the symmetric rule
     row2 = evaluate(p, model=model_from(set(YEARS)))
     assert sel.classify(row2, sym) == ("separated", "always white")
+
+
+def test_pin_reruns_on_the_examined_stations(tmp_path, monkeypatch, cfg, caplog):
+    """Two boxes; a pinned rerun examines the same stations and keeps the full-inventory funnel."""
+    import logging
+
+    from whitexmas import station_global as sg
+    from whitexmas.paths import DataPaths
+
+    gdir = tmp_path / "external" / "ghcn"
+    gdir.mkdir(parents=True)
+    st = [  # id, lat, lon, first year of SNWD
+        ("XX000000001", 50.2, 10.2, 1940),  # box (50, 10), rank 1, omits zeros
+        ("XX000000002", 50.6, 10.7, 1950),  # box (50, 10), rank 2, good
+        ("XX000000003", 60.2, 20.2, 1950),  # box (60, 20), rank 1, good
+        ("XX000000004", 60.6, 20.7, 1960),  # box (60, 20), rank 2, never needed
+    ]
+    with open(gdir / "ghcnd-stations.txt", "w") as f:
+        for sid, lat, lon, _ in st:
+            f.write(f"{sid} {lat:8.4f} {lon:9.4f} {300.0:6.1f}    {'S' + sid[-1]:<30}\n")
+    with open(gdir / "ghcnd-inventory.txt", "w") as f:
+        for sid, lat, lon, y0 in st:
+            f.write(f"{sid} {lat:8.4f} {lon:9.4f} SNWD {y0} 2025\n")
+    (gdir / "ghcnd-countries.txt").write_text("XX Testland\n")
+    for sid, *_ in st:
+        write_station(gdir / f"{sid}.csv.gz", sid, white_every(3), omit_zeros=sid.endswith("1"))
+    monkeypatch.setattr(ghcn, "fetch_stations", lambda *a, **k: 0)
+
+    class FakeCube:
+        years = YEARS
+
+        def cell_of(self, m):
+            return (400, 1900), (0, 0), 300.0
+
+        def column(self, j, i):
+            return model_from({y for y in YEARS if y % 3 == 0}, depth=5)
+
+    rows, info = sg.select_and_examine(cfg, DataPaths(tmp_path), FakeCube())
+    assert info["examined_ids"] == ["XX000000001", "XX000000002", "XX000000003"]
+    assert info["candidates_with_land_cell"] == 4 and info["elevation_retry_ids"] == []
+    pin = tmp_path / "stations.json"
+    pin.write_text(json.dumps({"selection": sg._clean(info | {"_elevation_retry_rows": None})}))
+
+    cfg.raw["stations"].setdefault("auto", {})["pin"] = str(pin)
+    rows2, info2 = sg.select_and_examine(cfg, DataPaths(tmp_path), FakeCube())
+    assert info2["examined_ids"] == info["examined_ids"]
+    assert [(r["id"], r["status"]) for r in rows2] == [(r["id"], r["status"]) for r in rows]
+    for key in sg.PIN_COPIED:  # the funnel still describes the full inventory
+        assert info2[key] == info[key]
+    assert info2["pinned_to"] == str(pin)
+
+    # the metadata changed since the pinned run: warn, but still rerun on the pinned stations
+    with open(gdir / "ghcnd-inventory.txt", "a") as f:
+        f.write("XX000000009  70.0000   30.0000 SNWD 1950 2025\n")
+    with caplog.at_level(logging.WARNING, logger="whitexmas.station_global"):
+        _, info3 = sg.select_and_examine(cfg, DataPaths(tmp_path), FakeCube())
+    assert "ghcnd-inventory.txt differs from the pinned run" in caplog.text
+    assert info3["examined_ids"] == info["examined_ids"]

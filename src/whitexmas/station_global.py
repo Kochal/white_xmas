@@ -111,11 +111,20 @@ def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tupl
     metas = ghcn.read_stations(st_txt)
     inv = ghcn.read_inventory(inv_txt)
     first, last = cfg.first_year, cfg.last_year
+    pinned: dict = {}
     if auto.pin:
-        pin = json.loads(Path(auto.pin).read_text(encoding="utf-8"))
-        ids = set(pin["selection"]["examined_ids"])
+        pinned = json.loads(Path(auto.pin).read_text(encoding="utf-8"))["selection"]
+        ids = set(pinned["examined_ids"]) | set(pinned.get("elevation_retry_ids", []))
         inv = {k: v for k, v in inv.items() if k in ids}
         log.info("auto: candidates pinned to the %d stations examined in %s", len(ids), auto.pin)
+        for key, path in (("inventory_sha256", inv_txt), ("stations_sha256", st_txt)):
+            if pinned.get(key) and pinned[key] != _sha256(path):
+                log.warning(
+                    "auto: %s differs from the pinned run (%s): GHCN-Daily metadata changed "
+                    "since then, so station metadata and inventory spans may differ",
+                    path.name,
+                    key,
+                )
 
     def cell_of(m):
         c = cube.cell_of(m)
@@ -175,9 +184,24 @@ def select_and_examine(cfg: Config, paths: DataPaths, cube: CubeColumns) -> tupl
         "pinned_to": auto.pin,
         "examined_ids": sorted(r["id"] for r in rows),
         "elevation_retry_examined": len(alt),
+        "elevation_retry_ids": sorted(r["id"] for r in alt),
         "_elevation_retry_rows": alt,  # for the sensitivity table only; not written out
     }
+    if pinned:
+        # The candidate funnel describes the full inventory, which a pinned run no longer sees.
+        for key in PIN_COPIED:
+            if key in pinned:
+                info[key] = pinned[key]
     return rows, info
+
+
+# Counts that describe the whole inventory: a pinned run copies them from the pin file.
+PIN_COPIED = (
+    "inventory_snwd_stations",
+    "with_min_span",
+    "candidates_with_land_cell",
+    "boxes_stopped_at_max_tries",
+)
 
 
 def _sha256(path: Path) -> str:
