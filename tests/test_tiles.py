@@ -81,3 +81,10 @@ def test_layer_plan_matches_contract_ids():
     assert "trend__any_day__2000_2019" in ids
     trend = next(ly for ly in plan_layers(cfg) if ly["kind"] == "trend")
     assert trend["hatch_insignificant"] is True and trend["colormap"] == "trend"
+
+
+def test_projection_hook_is_inert_without_projections(tmp_path):
+    from whitexmas.export import manifest_fragment
+    from whitexmas.paths import DataPaths
+
+    assert manifest_fragment(DataPaths(tmp_path)) is None

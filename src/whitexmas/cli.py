@@ -13,6 +13,13 @@ from .paths import DataPaths
 
 app = typer.Typer(add_completion=False, no_args_is_help=True, help=__doc__)
 
+try:  # `whitexmas projections …`, once the projections package is on this branch
+    from .projections.cli import app as projections_app
+
+    app.add_typer(projections_app, name="projections")
+except ImportError:  # pragma: no cover - depends on which branch is checked out
+    pass
+
 ConfigOpt = Annotated[Path | None, typer.Option("--config", "-c", help="Path to pipeline.yaml")]
 
 

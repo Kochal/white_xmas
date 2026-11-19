@@ -24,6 +24,14 @@ from ..config import Config
 from ..paths import REPO_ROOT, DataPaths
 from .colors import COLORMAPS
 
+try:  # the projections package lives on its own branch until the two meet
+    from ..projections.export import manifest_fragment
+except ImportError:  # pragma: no cover - depends on which branch is checked out
+
+    def manifest_fragment(paths: DataPaths) -> dict | None:
+        return None
+
+
 log = logging.getLogger(__name__)
 EXPORT_VERSION = 1
 SCHEMA_VERSION = 1
@@ -178,11 +186,18 @@ def export_all(
     a, b = cfg.change_pair
     full = cfg.full_window().id
 
+    # Projection layers (and the manifest's projections block) come from the projections
+    # export, which renders its own tiles into web_out; we only list and keep them.
+    frag = manifest_fragment(paths)
+
     # 1 · raster layers -------------------------------------------------------------
     layers = plan_layers(cfg, decades_for_all=bool(ex.get("decades_for_all_definitions", True)))
+    own_layers = layers
+    if frag:
+        layers = layers + frag["layers"]
     tiles_dir = web_out / "tiles"
     todo = [
-        ly for ly in layers
+        ly for ly in own_layers
         if not (tiles_dir / f"{ly['id']}.pmtiles").exists()
         or state["layers"].get(ly["id"]) != fp
     ]  # fmt: skip
@@ -263,6 +278,8 @@ def export_all(
         log.warning("bundle %.0f MB over budget: decades for the default definition only",
                     sum(sizes.values()) / 1e6)  # fmt: skip
         layers = plan_layers(cfg, decades_for_all=False)
+        if frag:
+            layers += frag["layers"]
     keep_files = {ly["url"] for ly in layers}
     for p in tiles_dir.glob("*.pmtiles"):
         if f"tiles/{p.name}" not in keep_files:
@@ -296,7 +313,7 @@ def export_all(
         "colormaps": COLORMAPS,
         "glacier_style": "hatched",
         "points": {"index": "points/index.json", "tile_deg": 5, "format": "wx-points-v1"},
-        "projections": {"available": False},
+        "projections": frag["projections"] if frag else {"available": False},
         "places": "places.json",
         "regions": "regions.json",
     }
