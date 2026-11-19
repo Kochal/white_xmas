@@ -1,6 +1,6 @@
 """Model validation against ERA5-Land.
 
-1. **Bias** (plan §3b): each model's baseline white-Christmas frequency (1995-2014, its own
+1. **Bias** (plan §3b): each model's baseline white-Christmas frequency (1996-2025, its own
    grid) against ERA5-Land for the same years aggregated to that grid. Bias maps go to
    ``interim/projections/validation/bias_<model>.nc``, the summary to ``skill.csv``/``.json``.
 2. **Hindcast**: does the method itself add skill? Take ERA5-Land's 1961-1990 probability, apply
@@ -79,7 +79,7 @@ def validate(
     period: tuple[int, int] | None = None,
 ) -> dict:
     """Bias of each model's white-Christmas frequency against ERA5-Land over ``period``
-    (default: the model baseline, 1995-2014)."""
+    (default: the model baseline, 1996-2025)."""
     import xarray as xr
 
     pp = ProjPaths.from_data(paths)
@@ -115,7 +115,7 @@ def validate(
             else:
                 k, n = None, None
         if k is None:
-            k, n, *_ = counts_for_window(pp.cmip6, f.stem, "historical", b0, b1, hs)
+            k, n, *_ = counts_for_window(pp.cmip6, f.stem, s.baseline_experiment, b0, b1, hs)
             k, n = k[0], n[0]
         with np.errstate(invalid="ignore", divide="ignore"):
             mf = np.where(land & (n > 0), k / n, np.nan)
@@ -306,7 +306,7 @@ def load_window_safe(pp: ProjPaths, model: str, period: tuple[int, int]):
     from .cmip6 import load_window
 
     try:
-        return load_window(pp.cmip6, model, "historical", *period)
+        return load_window(pp.cmip6, model, "ssp245", *period)
     except FileNotFoundError:
         return None
 

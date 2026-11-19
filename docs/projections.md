@@ -9,7 +9,8 @@ method, model list, skill table and limitations sections are filled in as Phase 
 
 We ask: *how much less likely is a white Christmas here in a warmer world?* For each of about 20
 global climate models (CMIP6), we count how often there is snow on the ground on Christmas Day in
-the model's own world, once for the recent past (1995–2014) and once for the 20 years in which
+the model's own world, once for the recent past (1996–2025, the same years as the observations)
+and once for the 20 years in which
 that model is 1.5, 2 or 3 °C warmer than in 1850–1900. The change between the two is applied to
 today's observed probability from ERA5-Land (1996–2025). Because each model is only compared with
 itself, a model that has too much or too little snow overall still contributes a useful *change*.
@@ -128,11 +129,19 @@ member*. They cover 21 of the 22 candidate models, so we do not need to compute 
 | NESM3 | r1i1p1f1 | 2015–2034 | 2033–2052 | 2045–2064 (585) |
 | UKESM1-0-LL | r1i1p1f2 | 2014–2033 | 2025–2044 | 2050–2069 |
 
-Two things to note. Hot models (CanESM5, EC-Earth3-Veg, UKESM1-0-LL) reach +1.5 °C during or just
-after the 1995–2014 baseline, so their +1.5 °C change is small by construction; that is correct
-for a warming-level framing. And the model baseline (1995–2014, about +0.85 °C) is centred six
-years earlier than the ERA5-Land baseline (1996–2025); the difference is about 0.15 °C of global
-warming, small next to the steps between levels. Both are stated on the methodology page.
+**Model baseline (decision D-12, 2026-11-19): 1996–2025**, historical up to 2014 and SSP2-4.5
+from 2015, exactly the ERA5-Land baseline window. The first draft used 1995–2014 (plan §3b),
+which is centred about 0.15 °C of global warming earlier than the observations, so the change
+applied to ERA5-Land was slightly double counted; matching the windows removes that.
+
+What a calendar baseline cannot remove: hot models are already warmer than the real world in
+1996–2025. CanESM5 (+1.5 °C window 2004–2023), EC-Earth3-Veg (1998–2017) and largely
+UKESM1-0-LL (2014–2033) reach +1.5 °C *inside* the baseline, so their +1.5 °C change is near
+zero by construction, while cooler models (MIROC6, GFDL-ESM4: 2037–2056) show the full step.
+The alternative is a warming-level baseline: each model's own +1.0 °C window from the same
+Hauser et al. table (about the observed warming in 1996–2025), so every model contributes the
+change from +1.0 °C to the target level. That is a small change (a per-model baseline window
+instead of `ProjSettings.baseline`) if it is wanted; it is not used unless decided.
 
 ### 4. From snow water equivalent to a 1 cm depth threshold
 
@@ -147,7 +156,8 @@ ERA5-Land. Each model's *change* in the log-odds of "snow above the threshold" b
 baseline and its own warmer window is what gets transferred. A different threshold shifts the
 model's baseline frequency a little, but the log-odds change in the cells where snow is
 uncertain (the cells that matter) is nearly the same. A first check on MPI-ESM1-2-LR
-(Dec 25, 1995–2014 vs its +2 °C window 2048–2067, cells with 3–17 white years of 20):
+(Dec 25, 1995–2014 vs its +2 °C window 2048–2067, cells with 3–17 white years of 20; a first check
+made with the earlier baseline):
 
 | SWE threshold (kg m⁻²) | 0.5 | 1 | 2.5 | 5 | 10 |
 |---|---|---|---|---|---|
@@ -169,7 +179,9 @@ The full sensitivity test across all models is part of Phase 2 validation.
    so pooling does not make a model look more certain than its 20 years allow. `--pool 0` gives
    the plain Christmas-Day count; the three definitions pool the same way (a 3-day rule centred
    on each day).
-3. **Frequencies** in the baseline (historical 1995–2014) and in each warming-level window (§3).
+3. **Frequencies** in the baseline (1996–2025: historical to 2014, SSP2-4.5 from 2015; D-12) and
+   in each warming-level window (§3). Historical and scenario files are joined on the calendar
+   date, so the 2014 season keeps its January 2015 days.
 4. **Change in log-odds** with Jeffreys smoothing, `q = (k + ½)/(n + 1)`, so 0 % and 100 % stay
    finite: `Δ = logit(q_future) − logit(q_baseline)`, with `k` the (fractional) white-year count
    and `n` = 20 years.
@@ -250,9 +262,9 @@ or its transition-cell error exceeds 35 pp.
 
 ### Interim results (ERA5-Land 1961–1990)
 
-ERA5-Land 1995–2014 is not complete yet, so the first validation uses 1961–1990, a period where
+ERA5-Land 1996–2025 is not complete yet, so the first validation uses 1961–1990, a period where
 every year is on disk; model frequencies are from each model's `historical` run for the same
-years (Christmas ± 7 days, threshold 2.5 kg m⁻²). The run on 1995–2014 replaces this table once the
+years (Christmas ± 7 days, threshold 2.5 kg m⁻²). The run on 1996–2025 replaces this table once the
 data is in. ERA5-Land median Christmas SWE at 40–60 °N: 64 kg m⁻² (at 250 kg m⁻³).
 
 | Model | Grid | Model % | ERA5-Land % | Bias (pp) | MAE (pp) | MAE transition (pp) | Corr. | SWE ratio | Used |
@@ -307,22 +319,23 @@ warming) follows when ERA5-Land 1996–2025 is in.
 
 ### Sensitivity to threshold and day pooling
 
-Christmas-Day log-odds change at +2 °C, all 21 models, cells where the models' median baseline
-frequency is 10–90 %, Northern Hemisphere 25–75 °N on a 1° grid
+Christmas-Day log-odds change from the 1996–2025 baseline to +2 °C, all 21 models, cells where
+the models' median baseline frequency is 10–90 %, Northern Hemisphere 25–75 °N on a 1° grid
 (`scripts/projections/sensitivity.py`):
 
 | SWE threshold (kg m⁻²) | Pooling | Median change | Model spread (p10–p90) | Noise (neighbour diff.) |
 |---|---|---|---|---|
-| 2.5 | none (Dec 25 only) | −0.554 | 1.71 | 0.106 |
-| 2.5 | ± 3 days | −0.563 | 1.45 | 0.087 |
-| **2.5** | **± 7 days (used)** | **−0.553** | **1.30** | **0.075** |
-| 1.0 | ± 7 days | −0.552 | 1.24 | 0.068 |
-| 5.0 | ± 7 days | −0.552 | 1.39 | 0.084 |
+| 2.5 | none (Dec 25 only) | −0.514 | 1.63 | 0.110 |
+| 2.5 | ± 3 days | −0.518 | 1.36 | 0.089 |
+| **2.5** | **± 7 days (used)** | **−0.510** | **1.21** | **0.077** |
+| 1.0 | ± 7 days | −0.508 | 1.17 | 0.069 |
+| 5.0 | ± 7 days | −0.494 | 1.29 | 0.086 |
 
-The typical change does not depend on the threshold or on pooling (−0.55 in every case: at 50 %
-today, about 37 % at +2 °C). Pooling ± 7 days narrows the model spread by about a quarter and
-cell-to-cell noise by about 30 %, which is the point of it: less of the uncertainty band is
-sampling noise.
+The typical change hardly depends on the threshold or on pooling (−0.49 to −0.52: at 50 % today,
+about 38 % at +2 °C). Pooling ± 7 days narrows the model spread by about a quarter (26 %) and
+cell-to-cell noise by 30 %, which is the point of it: less of the uncertainty band is sampling
+noise. (With the earlier 1995–2014 baseline the median change was −0.55; the 1996–2025 baseline
+is about 0.15 °C warmer, so the step to +2 °C is a little smaller.)
 
 ## Limitations
 
@@ -339,10 +352,10 @@ sampling noise.
   labelled "late this century or later; most models reach it only under SSP5-8.5" (the rule:
   fewer than half the models reach the level under SSP2-4.5). With faster or slower emission
   cuts the same warming level comes earlier or later.
-- **Baseline offset.** Models use 1995–2014 (about +0.85 °C) as their baseline, ERA5-Land uses
-  1996–2025 (about +1.0 °C). The projected change is therefore slightly too large, by roughly
-  the change between those two periods (~0.15 °C of global warming). Hot models reach +1.5 °C
-  during their baseline, so their +1.5 °C change is small.
+- **Hot models and the calendar baseline.** Models and ERA5-Land share the 1996–2025 baseline
+  (D-12), so nothing is double counted. But hot models are already near +1.5 °C in those years,
+  so their +1.5 °C change is small; the ensemble mixes "how much warmer" with "how sensitive the
+  model is". See §3 for the warming-level-baseline alternative.
 - **Snow amount, not depth.** Models provide snow water equivalent; the 1 cm threshold is
   converted with an assumed density (§4). The change transfer makes the result insensitive to
   the exact value.

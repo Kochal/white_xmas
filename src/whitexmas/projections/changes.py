@@ -155,7 +155,7 @@ def compute_model(
     return out
 
 
-def models_ready(pp: ProjPaths, first_year: int = 1995) -> list[str]:
+def models_ready(pp: ProjPaths, first_year: int = 1996) -> list[str]:
     """Models whose snow files from ``first_year`` on are all downloaded (plan vs manifest)."""
     import json
 

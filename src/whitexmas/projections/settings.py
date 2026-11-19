@@ -21,9 +21,11 @@ class ProjSettings:
     threshold_kg_m2: float = 2.5
     # centre days within +/- pool_days of 25 Dec are averaged (0 = Christmas Day only)
     pool_days: int = 7
-    baseline: tuple[int, int] = (1995, 2014)
-    # seasons up to 2014 come from historical, later ones from this experiment
-    baseline_experiment: str = "historical"
+    # D-12: the model baseline is the ERA5-Land window itself, 1996-2025 (historical up to
+    # 2014, SSP2-4.5 from 2015), so the change is not double counted against the observations
+    baseline: tuple[int, int] = (1996, 2025)
+    # days up to 2014 come from historical, later ones from this experiment
+    baseline_experiment: str = "ssp245"
     gwls: tuple[float, ...] = GWLS
     definitions: tuple[str, ...] = DEFINITIONS
     # a model cell counts as land when its land fraction is at least this (%)
