@@ -40,7 +40,8 @@ A grid cell has a white Christmas in a given year when ERA5-Land's daily-mean sn
 Most people mean "snow on the ground", and weather services count that as at least 1 cm on a
 snow ruler. Taken literally, ERA5-Land at ≥ 1 cm is far too snowy: compared with weather stations
 it gives a white Christmas Day about **20 percentage points too often** across 827 stations
-(Munich 72 % against about 34 % measured, Chicago 72 % against 39 %; see the station check below). ERA5-Land carries too much
+(on the original hand-picked list, for example, Munich 72 % against about 34 % measured and Chicago
+72 % against 39 %; see the station check below). ERA5-Land carries too much
 thin, patchy snow in the lowlands, a bias also reported in the scientific literature.
 
 So the **default threshold is 5 cm in ERA5-Land**, the whole-centimetre value that best matches

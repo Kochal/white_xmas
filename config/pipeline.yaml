@@ -46,14 +46,15 @@ thresholds:
     label: Calibrated to weather stations
     description: >-
       At least {cm} cm of snow in ERA5-Land, which matches at least {station_equivalent_cm} cm
-      measured at weather stations (checked against 30 GHCN-Daily stations).
+      measured at weather stations (checked against 827 GHCN-Daily stations, mostly in North
+      America and Europe).
     layers: full
   - id: raw
     cm: 1
     label: Raw ERA5-Land, at least 1 cm
     description: >-
-      At least {cm} cm of snow in ERA5-Land as published. Too snowy in lowlands by about
-      24 percentage points compared with weather stations.
+      At least {cm} cm of snow in ERA5-Land as published. Too snowy by about 20 percentage
+      points compared with weather stations.
     layers: full
 
 # A window's probability is reported only where at least this share of its years has data.
