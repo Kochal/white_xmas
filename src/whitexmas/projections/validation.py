@@ -35,6 +35,15 @@ log = logging.getLogger(__name__)
 REGION = (25.0, 75.0)
 
 
+def obs_threshold_cm() -> float:
+    """The observed (ERA5-Land) threshold of the published default (contract v1.5, D-17: the
+    station-calibrated 5 cm, which matches about 1 cm at weather stations, i.e. the same snow
+    the models' 2.5 kg m-2 stands for)."""
+    from ..config import Config
+
+    return float(Config.load(None).threshold_cm)
+
+
 def _region_weights(lat: np.ndarray, nlon: int) -> np.ndarray:
     w = np.cos(np.deg2rad(lat))[:, None] * np.ones((1, nlon))
     w[(lat < REGION[0]) | (lat > REGION[1])] = 0.0
@@ -86,7 +95,8 @@ def validate(
     pp.validation.mkdir(parents=True, exist_ok=True)
     d = "christmas_day"
     b0, b1 = period or s.baseline
-    era = era5_window_frequency(paths, d, b0, b1)
+    thr = obs_threshold_cm()
+    era = era5_window_frequency(paths, d, b0, b1, thr)
     if era is None:
         # Never fall back to the placeholder baseline: a selection made against it would
         # silently decide which models enter the real ensemble.
@@ -95,7 +105,7 @@ def validate(
             "raw years on disk); validation needs real ERA5-Land data and never uses the "
             "placeholder baseline"
         )
-    era_src = f"ERA5-Land {b0}-{b1}"
+    era_src = f"ERA5-Land {b0}-{b1}, {thr:g} cm"
     bl = load_baseline(paths, d, s.obs_window)
     if bl.placeholder:
         era_src += " (no glacier mask yet)"
@@ -158,8 +168,9 @@ def hindcast(
     """Brier skill of transferring each model's then→now change onto ERA5-Land 'then'."""
     pp = ProjPaths.from_data(paths)
     d = "christmas_day"
-    f_then = era5_window_frequency(paths, d, *then)
-    f_now = era5_window_frequency(paths, d, *now)
+    thr = obs_threshold_cm()
+    f_then = era5_window_frequency(paths, d, *then, thr)
+    f_now = era5_window_frequency(paths, d, *now, thr)
     if f_then is None or f_now is None:
         raise FileNotFoundError(
             f"hindcast needs ERA5-Land {then[0]}-{then[1]} and {now[0]}-{now[1]} "
@@ -204,6 +215,7 @@ def hindcast(
         log.info("hindcast %s: BS %.5f, BSS %.4f", m, bs, 1 - bs / bs_ref)
     out = {
         "then": list(then),
+        "era5_threshold_cm": thr,
         "now": list(now),
         "brier_no_change": round(bs_ref, 5),
         "brier_oracle": round(bs_oracle, 5),
