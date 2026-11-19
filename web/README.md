@@ -42,19 +42,19 @@ glacier, over 17 point tiles in central Europe and around the Great Lakes, 56 re
 
 ## Scripts
 
-| Script                           | What it does                                                                                                        |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `npm run dev`                    | Dev server with the fixtures                                                                                        |
-| `npm run build`                  | Static build into `build/` (`BASE_PATH` and `PUBLIC_SITE_URL`, see below)                                           |
-| `npm run check:build`            | Checks `build/` matches `BASE_PATH` / `PUBLIC_SITE_URL` (no stray `/white_xmas`, no `github.io` on a custom domain) |
-| `npm run build:fixtures`         | Build, then copy the fixtures into `build/data/`                                                                    |
-| `npm run preview`                | Serve `build/` like GitHub Pages (base path, 404.html, range requests)                                              |
-| `npm run check`                  | `svelte-check` (TypeScript)                                                                                         |
-| `npm run lint`                   | Prettier and ESLint                                                                                                 |
-| `npx vitest run`                 | Unit tests (data layer, decoders, statistics, fixture writer)                                                       |
-| `npm run test:e2e`               | Playwright smoke test against the built site and fixtures (desktop + mobile)                                        |
-| `E2E_REAL=1 npx playwright test` | The same smoke test against real data in `static/data/`                                                             |
-| `npm run fixtures`               | Regenerate `fixtures/data/`                                                                                         |
+| Script                           | What it does                                                                                                               |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                    | Dev server with the fixtures                                                                                               |
+| `npm run build`                  | Static build into `build/` (`BASE_PATH` and `PUBLIC_SITE_URL`, see below)                                                  |
+| `npm run check:build`            | Checks `build/` matches `BASE_PATH` / `PUBLIC_SITE_URL` (no stray `/white_xmas`, no `kochal.github.io` on a custom domain) |
+| `npm run build:fixtures`         | Build, then copy the fixtures into `build/data/`                                                                           |
+| `npm run preview`                | Serve `build/` like GitHub Pages (base path, 404.html, range requests)                                                     |
+| `npm run check`                  | `svelte-check` (TypeScript)                                                                                                |
+| `npm run lint`                   | Prettier and ESLint                                                                                                        |
+| `npx vitest run`                 | Unit tests (data layer, decoders, statistics, fixture writer)                                                              |
+| `npm run test:e2e`               | Playwright smoke test against the built site and fixtures (desktop + mobile)                                               |
+| `E2E_REAL=1 npx playwright test` | The same smoke test against real data in `static/data/`                                                                    |
+| `npm run fixtures`               | Regenerate `fixtures/data/`                                                                                                |
 
 On Windows Git Bash, prefix `BASE_PATH=/white_xmas` with `MSYS_NO_PATHCONV=1` so the path isn't rewritten.
 Build both ways with `BASE_PATH=/white_xmas PUBLIC_SITE_URL=https://kochal.github.io/white_xmas npm run build`

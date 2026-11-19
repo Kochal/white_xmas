@@ -158,7 +158,8 @@ domain disagree (see [What the code does](#what-the-code-does)).
 
 a. **Repository variable.** Repository → **Settings → Secrets and variables → Actions →
 Variables → New repository variable**: name `PAGES_CUSTOM_DOMAIN`, value `snowatchristmas.com`.
-(If a push to `main` happens while `PAGES_ENABLED` is `true`, it now deploys the domain build.)
+(A push to `main` between 3a and 3b fails the build on purpose, because the variable and the Pages
+domain disagree; after 3b, pushes deploy the domain build.)
 
 b. **Custom domain.** Repository → **Settings → Pages → Custom domain** → `snowatchristmas.com`
 → **Save** (source 1). With an Actions source no commit or `CNAME` file is created. GitHub runs
@@ -175,6 +176,12 @@ c. **Deploy.** Repository → **Actions → pages → Run workflow** (leave `dat
 `require_data` ticked). The `test` job runs the web checks first; `build` runs
 `check:build` for `BASE_PATH=''`; `deploy` publishes. This takes a few minutes. Until it
 finishes, the old build is what is served.
+
+- [ ] **After this first run, open its log** (job `build` → step "Resolve base path and site URL")
+      and confirm there is **no `::warning::` about the Pages settings** ("Could not read the Pages
+      settings…"). A warning in an otherwise green run is easy to miss. If it is there, the
+      custom-domain guard is **off** (the token cannot read the Pages API): tell the orchestrator or
+      the repository owner, and take care by hand that the variable and the Pages domain agree.
 
 ### 4. HTTPS
 
@@ -238,18 +245,25 @@ If it returns 404 instead, old links break; the usual fix is a one-file redirect
 
 ## Rollback
 
-Each part can be undone on its own, in this order:
+Undoing the site switch is one coupled operation (the variable, the Pages domain and a
+re-deploy go together, in the order below). DNS is separate and comes after.
 
-1. **Site back on github.io: do both, then re-deploy.**
-   - **Delete** the repository variable `PAGES_CUSTOM_DOMAIN`, **and**
-   - **Remove** the custom domain in **Settings → Pages**, then
-   - run **Actions → pages → Run workflow**. The build is `/white_xmas` again.
+1. **Site back on github.io.** Do these three in this order, back to back:
+   1. **Delete** the repository variable `PAGES_CUSTOM_DOMAIN`. On its own this changes nothing
+      that is live. A run started now fails on purpose: the guard sees the Pages domain still set.
+   2. **Remove** the custom domain in **Settings → Pages**. **This starts the outage:** the
+      deployed root build is now served at `kochal.github.io/white_xmas/` and has no data
+      (it requests `kochal.github.io/data/…`).
+   3. **Run Actions → pages → Run workflow immediately.** The build is `/white_xmas` again. The
+      site has no data until that run's deploy finishes, about 3–4 minutes.
 
-   Both are required because they are independent: with only the domain removed, the next build is
-   still a root build and has no data on `kochal.github.io/white_xmas/`; with only the variable
-   deleted, a `/white_xmas` build is served at `snowatchristmas.com/` and has no data there. The
-   workflow's guard fails such a run before it deploys, so the live site stays as it was, but a
-   deploy that already happened is not undone by it.
+   All three are needed because the variable and the Pages domain are independent switches: with
+   only the domain removed, the next build is still a root build and has no data on
+   `kochal.github.io/white_xmas/`; with only the variable deleted, a `/white_xmas` build is served
+   at `snowatchristmas.com/` and has no data there. The workflow's guard only stops a _wrong new_
+   deploy (it fails a run whose variable and Pages domain disagree, so such a run never replaces
+   the live site); it does not prevent the outage between 2 and 3, and it does not undo a deploy
+   that already happened.
 
 2. **DNS:** restore the records from your GoDaddy screenshot (two parking `A` records, `www` CNAME to
    `snowatchristmas.com`). Do not leave the GitHub `A`/`AAAA` records pointing at Pages while the
